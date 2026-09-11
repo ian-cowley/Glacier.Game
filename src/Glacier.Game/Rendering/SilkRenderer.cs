@@ -13,6 +13,8 @@ public sealed unsafe class SilkRenderer : IRenderer
     private uint _vao;
     private uint _vbo;
     private uint _ebo;
+    private uint _shaderProgram;
+    private int _uProjectionLoc;
     private bool _initialized;
     private bool _disposed;
 
@@ -38,6 +40,49 @@ public sealed unsafe class SilkRenderer : IRenderer
 
         if (_gl == null || _initialized) return;
 
+        // 1. Compile Shader Program for batched 2D quad rendering
+        const string vertexShaderSource = @"#version 330 core
+layout (location = 0) in vec2 aPos;
+layout (location = 1) in vec2 aTexCoord;
+layout (location = 2) in vec4 aColor;
+
+out vec4 vColor;
+uniform mat4 uProjection;
+
+void main()
+{
+    gl_Position = uProjection * vec4(aPos, 0.0, 1.0);
+    vColor = aColor;
+}";
+
+        const string fragmentShaderSource = @"#version 330 core
+in vec4 vColor;
+out vec4 FragColor;
+
+void main()
+{
+    FragColor = vColor;
+}";
+
+        uint vs = _gl.CreateShader(ShaderType.VertexShader);
+        _gl.ShaderSource(vs, vertexShaderSource);
+        _gl.CompileShader(vs);
+
+        uint fs = _gl.CreateShader(ShaderType.FragmentShader);
+        _gl.ShaderSource(fs, fragmentShaderSource);
+        _gl.CompileShader(fs);
+
+        _shaderProgram = _gl.CreateProgram();
+        _gl.AttachShader(_shaderProgram, vs);
+        _gl.AttachShader(_shaderProgram, fs);
+        _gl.LinkProgram(_shaderProgram);
+
+        _gl.DeleteShader(vs);
+        _gl.DeleteShader(fs);
+
+        _uProjectionLoc = _gl.GetUniformLocation(_shaderProgram, "uProjection");
+
+        // 2. Setup dynamic VAO, VBO, EBO
         _vao = _gl.GenVertexArray();
         _vbo = _gl.GenBuffer();
         _ebo = _gl.GenBuffer();
@@ -75,6 +120,27 @@ public sealed unsafe class SilkRenderer : IRenderer
     {
         if (_gl == null) return;
         _gl.Viewport(0, 0, (uint)Width, (uint)Height);
+        _gl.ClearColor(0.05f, 0.07f, 0.11f, 1.0f);
+        _gl.Clear(ClearBufferMask.ColorBufferBit);
+
+        _gl.Enable(EnableCap.Blend);
+        _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+
+        _gl.UseProgram(_shaderProgram);
+
+        // Orthographic projection matrix: top-left (0,0) to bottom-right (Width, Height)
+        float[] ortho = new float[16]
+        {
+            2f / Width, 0f, 0f, 0f,
+            0f, -2f / Height, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            -1f, 1f, 0f, 1f
+        };
+        fixed (float* pMat = ortho)
+        {
+            _gl.UniformMatrix4(_uProjectionLoc, 1, false, pMat);
+        }
+
         _gl.BindVertexArray(_vao);
     }
 
@@ -99,11 +165,12 @@ public sealed unsafe class SilkRenderer : IRenderer
     {
         if (_gl == null) return;
         _gl.BindVertexArray(0);
+        _gl.UseProgram(0);
     }
 
     public void Present()
     {
-        // Buffers are swapped by the host window lifecycle
+        // Buffers are swapped by host window lifecycle
     }
 
     public void Dispose()
@@ -113,6 +180,7 @@ public sealed unsafe class SilkRenderer : IRenderer
 
         if (_gl != null && _initialized)
         {
+            _gl.DeleteProgram(_shaderProgram);
             _gl.DeleteBuffer(_vbo);
             _gl.DeleteBuffer(_ebo);
             _gl.DeleteVertexArray(_vao);

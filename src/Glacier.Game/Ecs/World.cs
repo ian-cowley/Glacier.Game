@@ -104,6 +104,29 @@ public sealed class World : IDisposable
         return e;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Entity CreateEntity<T1, T2, T3, T4>(in T1 component1, in T2 component2, in T3 component3, in T4 component4)
+        where T1 : unmanaged
+        where T2 : unmanaged
+        where T3 : unmanaged
+        where T4 : unmanaged
+    {
+        Entity e = CreateEntity();
+        var mask = ComponentMask.Empty
+            .With(ComponentType<T1>.Id)
+            .With(ComponentType<T2>.Id)
+            .With(ComponentType<T3>.Id)
+            .With(ComponentType<T4>.Id);
+        var table = GetOrCreateTable(mask);
+        int row = table.AddEntity(e);
+        table.SetComponent(row, component1);
+        table.SetComponent(row, component2);
+        table.SetComponent(row, component3);
+        table.SetComponent(row, component4);
+        _records[e.Id] = new EntityRecord { Table = table, Row = row };
+        return e;
+    }
+
     /// <summary>
     /// Destroys the entity, recycling its identifier and swapping components in O(1).
     /// </summary>
