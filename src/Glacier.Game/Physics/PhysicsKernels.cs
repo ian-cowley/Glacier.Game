@@ -26,19 +26,36 @@ public static unsafe class PhysicsKernels
         {
             int i = 0;
 
-            // Tier 1: AVX-512 16-element parallel FMA
+            // Tier 1: AVX-512 16-element parallel FMA (with 64-byte aligned load/store optimization)
             if (Avx512F.IsSupported && count >= 16)
             {
                 var vDt = Vector512.Create(dt);
-                for (; i <= count - 16; i += 16)
+                bool isAligned = (((nuint)pPosX | (nuint)pPosY | (nuint)pVelX | (nuint)pVelY) & 63) == 0;
+                if (isAligned)
                 {
-                    var x = Vector512.Load(pPosX + i);
-                    var y = Vector512.Load(pPosY + i);
-                    var vx = Vector512.Load(pVelX + i);
-                    var vy = Vector512.Load(pVelY + i);
+                    for (; i <= count - 16; i += 16)
+                    {
+                        var x = Vector512.LoadAligned(pPosX + i);
+                        var y = Vector512.LoadAligned(pPosY + i);
+                        var vx = Vector512.LoadAligned(pVelX + i);
+                        var vy = Vector512.LoadAligned(pVelY + i);
 
-                    Vector512.Store(Avx512F.FusedMultiplyAdd(vx, vDt, x), pPosX + i);
-                    Vector512.Store(Avx512F.FusedMultiplyAdd(vy, vDt, y), pPosY + i);
+                        Vector512.StoreAligned(Avx512F.FusedMultiplyAdd(vx, vDt, x), pPosX + i);
+                        Vector512.StoreAligned(Avx512F.FusedMultiplyAdd(vy, vDt, y), pPosY + i);
+                    }
+                }
+                else
+                {
+                    for (; i <= count - 16; i += 16)
+                    {
+                        var x = Vector512.Load(pPosX + i);
+                        var y = Vector512.Load(pPosY + i);
+                        var vx = Vector512.Load(pVelX + i);
+                        var vy = Vector512.Load(pVelY + i);
+
+                        Vector512.Store(Avx512F.FusedMultiplyAdd(vx, vDt, x), pPosX + i);
+                        Vector512.Store(Avx512F.FusedMultiplyAdd(vy, vDt, y), pPosY + i);
+                    }
                 }
             }
             // Tier 2: AVX2 8-element parallel FMA/Multiply-Add
@@ -109,11 +126,24 @@ public static unsafe class PhysicsKernels
             if (Avx512F.IsSupported && floatCount >= 16)
             {
                 var vDt = Vector512.Create(dt);
-                for (; i <= floatCount - 16; i += 16)
+                bool isAligned = (((nuint)pPosF | (nuint)pVelF) & 63) == 0;
+                if (isAligned)
                 {
-                    var p = Vector512.Load(pPosF + i);
-                    var v = Vector512.Load(pVelF + i);
-                    Vector512.Store(Avx512F.FusedMultiplyAdd(v, vDt, p), pPosF + i);
+                    for (; i <= floatCount - 16; i += 16)
+                    {
+                        var p = Vector512.LoadAligned(pPosF + i);
+                        var v = Vector512.LoadAligned(pVelF + i);
+                        Vector512.StoreAligned(Avx512F.FusedMultiplyAdd(v, vDt, p), pPosF + i);
+                    }
+                }
+                else
+                {
+                    for (; i <= floatCount - 16; i += 16)
+                    {
+                        var p = Vector512.Load(pPosF + i);
+                        var v = Vector512.Load(pVelF + i);
+                        Vector512.Store(Avx512F.FusedMultiplyAdd(v, vDt, p), pPosF + i);
+                    }
                 }
             }
             else if (Avx2.IsSupported && floatCount >= 8)
@@ -164,10 +194,22 @@ public static unsafe class PhysicsKernels
             if (Avx512F.IsSupported && count >= 16)
             {
                 var vDelta = Vector512.Create(delta);
-                for (; i <= count - 16; i += 16)
+                bool isAligned = ((nuint)pVelY & 63) == 0;
+                if (isAligned)
                 {
-                    var vy = Vector512.Load(pVelY + i);
-                    Vector512.Store(Vector512.Add(vy, vDelta), pVelY + i);
+                    for (; i <= count - 16; i += 16)
+                    {
+                        var vy = Vector512.LoadAligned(pVelY + i);
+                        Vector512.StoreAligned(Vector512.Add(vy, vDelta), pVelY + i);
+                    }
+                }
+                else
+                {
+                    for (; i <= count - 16; i += 16)
+                    {
+                        var vy = Vector512.Load(pVelY + i);
+                        Vector512.Store(Vector512.Add(vy, vDelta), pVelY + i);
+                    }
                 }
             }
             else if (Avx2.IsSupported && count >= 8)
@@ -200,10 +242,22 @@ public static unsafe class PhysicsKernels
             if (Avx512F.IsSupported && count >= 16)
             {
                 var vFac = Vector512.Create(factor);
-                for (; i <= count - 16; i += 16)
+                bool isAligned = (((nuint)pVx | (nuint)pVy) & 63) == 0;
+                if (isAligned)
                 {
-                    Vector512.Store(Vector512.Multiply(Vector512.Load(pVx + i), vFac), pVx + i);
-                    Vector512.Store(Vector512.Multiply(Vector512.Load(pVy + i), vFac), pVy + i);
+                    for (; i <= count - 16; i += 16)
+                    {
+                        Vector512.StoreAligned(Vector512.Multiply(Vector512.LoadAligned(pVx + i), vFac), pVx + i);
+                        Vector512.StoreAligned(Vector512.Multiply(Vector512.LoadAligned(pVy + i), vFac), pVy + i);
+                    }
+                }
+                else
+                {
+                    for (; i <= count - 16; i += 16)
+                    {
+                        Vector512.Store(Vector512.Multiply(Vector512.Load(pVx + i), vFac), pVx + i);
+                        Vector512.Store(Vector512.Multiply(Vector512.Load(pVy + i), vFac), pVy + i);
+                    }
                 }
             }
             else if (Avx2.IsSupported && count >= 8)

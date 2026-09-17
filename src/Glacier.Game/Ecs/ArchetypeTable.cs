@@ -40,7 +40,8 @@ public sealed unsafe class ArchetypeTable : IDisposable
 
         _columnSizes = new int[archetype.ComponentCount];
         _columns = (byte**)NativeMemory.AllocZeroed((nuint)(sizeof(byte*) * archetype.ComponentCount));
-        _entities = (Entity*)NativeMemory.AllocZeroed((nuint)(sizeof(Entity) * _capacity));
+        _entities = (Entity*)NativeMemory.AlignedAlloc((nuint)(sizeof(Entity) * _capacity), 64);
+        NativeMemory.Clear(_entities, (nuint)(sizeof(Entity) * _capacity));
 
         for (int i = 0; i < archetype.ComponentCount; i++)
         {
@@ -149,7 +150,9 @@ public sealed unsafe class ArchetypeTable : IDisposable
         if (_columnSizes[col] == 0)
         {
             _columnSizes[col] = size;
-            _columns[col] = (byte*)NativeMemory.AllocZeroed((nuint)(size * _capacity));
+            nuint bytes = (nuint)(size * _capacity);
+            _columns[col] = (byte*)NativeMemory.AlignedAlloc(bytes, 64);
+            NativeMemory.Clear(_columns[col], bytes);
         }
     }
 
@@ -169,8 +172,31 @@ public sealed unsafe class ArchetypeTable : IDisposable
         if (_columnSizes[col] == 0)
         {
             _columnSizes[col] = sizeof(T);
-            _columns[col] = (byte*)NativeMemory.AllocZeroed((nuint)(sizeof(T) * _capacity));
+            nuint bytes = (nuint)(sizeof(T) * _capacity);
+            _columns[col] = (byte*)NativeMemory.AlignedAlloc(bytes, 64);
+            NativeMemory.Clear(_columns[col], bytes);
         }
+    }
+
+    /// <summary>
+    /// Checks whether the specified component column pointer is aligned to a 64-byte boundary.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsColumnAligned<T>(nuint alignment = 64) where T : unmanaged
+    {
+        int typeId = ComponentType<T>.Id;
+        int col = GetColumnIndex(typeId);
+        EnsureColumnAllocated<T>(col);
+        return ((nuint)_columns[col] & (alignment - 1)) == 0;
+    }
+
+    /// <summary>
+    /// Checks whether the entity ID buffer pointer is aligned to a 64-byte boundary.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsEntitiesAligned(nuint alignment = 64)
+    {
+        return ((nuint)_entities & (alignment - 1)) == 0;
     }
 
     private void EnsureCapacity(int required)
@@ -178,16 +204,21 @@ public sealed unsafe class ArchetypeTable : IDisposable
         if (required <= _capacity) return;
 
         int newCapacity = Math.Max(_capacity * 2, required);
-        _entities = (Entity*)NativeMemory.Realloc(_entities, (nuint)(sizeof(Entity) * newCapacity));
+        nuint oldEntityBytes = (nuint)(sizeof(Entity) * _capacity);
+        nuint newEntityBytes = (nuint)(sizeof(Entity) * newCapacity);
+        _entities = (Entity*)NativeMemory.AlignedRealloc(_entities, newEntityBytes, 64);
+        NativeMemory.Clear((byte*)_entities + oldEntityBytes, newEntityBytes - oldEntityBytes);
 
         for (int col = 0; col < Archetype.ComponentCount; col++)
         {
             int elemSize = _columnSizes[col];
             if (elemSize > 0 && _columns[col] != null)
             {
-                _columns[col] = (byte*)NativeMemory.Realloc(_columns[col], (nuint)(elemSize * newCapacity));
+                nuint oldColBytes = (nuint)(elemSize * _capacity);
+                nuint newColBytes = (nuint)(elemSize * newCapacity);
+                _columns[col] = (byte*)NativeMemory.AlignedRealloc(_columns[col], newColBytes, 64);
                 // Clear newly allocated portion
-                NativeMemory.Clear(_columns[col] + (_capacity * elemSize), (nuint)((newCapacity - _capacity) * elemSize));
+                NativeMemory.Clear(_columns[col] + oldColBytes, newColBytes - oldColBytes);
             }
         }
 
@@ -201,7 +232,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
 
         if (_entities != null)
         {
-            NativeMemory.Free(_entities);
+            NativeMemory.AlignedFree(_entities);
             _entities = null;
         }
 
@@ -211,7 +242,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
             {
                 if (_columns[col] != null)
                 {
-                    NativeMemory.Free(_columns[col]);
+                    NativeMemory.AlignedFree(_columns[col]);
                     _columns[col] = null;
                 }
             }

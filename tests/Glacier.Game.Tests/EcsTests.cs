@@ -111,4 +111,57 @@ public class EcsTests
         Assert.Equal(42f, world.GetComponent<Position2D>(entity).X);
         Assert.Equal(10f, world.GetComponent<CircleCollider2D>(entity).Radius);
     }
+
+    [Fact]
+    public void ArchetypeTable_ComponentsAndEntities_Are64ByteAligned()
+    {
+        var mask = ComponentMask.Empty.With(ComponentType<Position2D>.Id).With(ComponentType<Velocity2D>.Id);
+        var archetype = new Archetype(1, mask);
+        using var table = new ArchetypeTable(archetype, 128);
+
+        // Populate table with entities
+        for (int i = 0; i < 64; i++)
+        {
+            int row = table.AddEntity(new Entity(i, 0));
+            table.SetComponent(row, new Position2D(i, i * 2));
+            table.SetComponent(row, new Velocity2D(10f, 20f));
+        }
+
+        // Verify 64-byte alignment
+        Assert.True(table.IsColumnAligned<Position2D>(64), "Position2D column must be 64-byte cache-line aligned");
+        Assert.True(table.IsColumnAligned<Velocity2D>(64), "Velocity2D column must be 64-byte cache-line aligned");
+        Assert.True(table.IsEntitiesAligned(64), "Entity buffer must be 64-byte cache-line aligned");
+    }
+
+    [Fact]
+    public void ArchetypeTable_CapacityReallocation_Preserves64ByteAlignment()
+    {
+        var mask = ComponentMask.Empty.With(ComponentType<Position2D>.Id).With(ComponentType<Velocity2D>.Id);
+        var archetype = new Archetype(2, mask);
+        using var table = new ArchetypeTable(archetype, 16);
+
+        // Add 500 entities to force multiple capacity reallocations
+        for (int i = 0; i < 500; i++)
+        {
+            int row = table.AddEntity(new Entity(i, 0));
+            table.SetComponent(row, new Position2D(i, i * 3));
+            table.SetComponent(row, new Velocity2D(1f, 2f));
+        }
+
+        Assert.True(table.Capacity >= 500);
+        Assert.True(table.IsColumnAligned<Position2D>(64), "Position2D column must preserve 64-byte alignment after growth");
+        Assert.True(table.IsColumnAligned<Velocity2D>(64), "Velocity2D column must preserve 64-byte alignment after growth");
+        Assert.True(table.IsEntitiesAligned(64), "Entities buffer must preserve 64-byte alignment after growth");
+
+        // Verify data integrity
+        var posSpan = table.GetSpan<Position2D>();
+        var velSpan = table.GetSpan<Velocity2D>();
+        for (int i = 0; i < 500; i++)
+        {
+            Assert.Equal(i, posSpan[i].X);
+            Assert.Equal(i * 3, posSpan[i].Y);
+            Assert.Equal(1f, velSpan[i].X);
+            Assert.Equal(2f, velSpan[i].Y);
+        }
+    }
 }
