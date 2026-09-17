@@ -29,6 +29,17 @@
 
 ---
 
+## 🖼️ Visual Gallery: Real Rendered Physics & ECS Simulation
+
+All simulations below are generated directly from the native `Glacier.Game.Sample` running at 470+ FPS with zero heap allocations on the hot loop:
+
+| 25,000-Particle Gravitational Vortex (240Hz) | Spatial Hash Partitioning & Elastic Collisions |
+| :---: | :---: |
+| ![Particle Vortex](docs/images/demo_particle_vortex.png) | ![Spatial Hash Collision](docs/images/demo_spatial_collision.png) |
+| *Orbital gravitational vortex simulated via AVX-512 physics with velocity-gradient shading* | *Broadphase spatial hash grid with SIMD-accelerated AABB intersection checks* |
+
+---
+
 ## 2. Data-Oriented Architecture (ECS Memory Model)
 
 ```

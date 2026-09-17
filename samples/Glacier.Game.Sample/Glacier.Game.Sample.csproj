@@ -11,5 +11,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Glacier.Game\Glacier.Game.csproj" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
   </ItemGroup>
 </Project>
