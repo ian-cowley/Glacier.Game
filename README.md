@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-purple.svg)](https://dotnet.microsoft.com/)
 [![Native AOT](https://img.shields.io/badge/Native%20AOT-Ready-brightgreen.svg)](https://learn.microsoft.com/dotnet/core/deploying/native-aot/)
+[![NuGet Version](https://img.shields.io/nuget/v/Glacier.Game.svg)](https://www.nuget.org/packages/Glacier.Game/)
 [![Ecosystem](https://img.shields.io/badge/Glacier-Ecosystem-blue)](https://github.com/ian-cowley)
 
 > **High-Performance Data-Oriented 2D/3D ECS Game Engine for C# .NET 10 (Systematically Beating Python Pygame)**
