@@ -18,11 +18,13 @@ public sealed unsafe class SpriteBatch : IDisposable
     private Vertex2D* _vertices;
     private uint* _indices;
     private int _quadCount;
+    private int _currentTextureId;
     private bool _inBatch;
     private bool _disposed;
 
     public int QuadCount => _quadCount;
     public int MaxQuads => _maxQuads;
+    public int CurrentTextureId => _currentTextureId;
 
     public SpriteBatch(IRenderer renderer, int maxQuads = DefaultMaxQuads)
     {
@@ -55,32 +57,45 @@ public sealed unsafe class SpriteBatch : IDisposable
         if (_inBatch) throw new InvalidOperationException("Begin() called while already in a batch.");
         _inBatch = true;
         _quadCount = 0;
+        _currentTextureId = 0;
         _renderer.Begin(transform ?? Matrix3x2.Identity);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void DrawQuad(float x, float y, float width, float height, Color32 color)
     {
-        if (!_inBatch) throw new InvalidOperationException("DrawQuad called outside Begin/End block.");
+        DrawSprite(0, x, y, width, height, 0f, 0f, 1f, 1f, color);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void DrawSprite(int textureId, float x, float y, float width, float height, Color32 color)
+    {
+        DrawSprite(textureId, x, y, width, height, 0f, 0f, 1f, 1f, color);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void DrawSprite(int textureId, float x, float y, float width, float height, float u0, float v0, float u1, float v1, Color32 color)
+    {
+        if (!_inBatch) throw new InvalidOperationException("DrawSprite called outside Begin/End block.");
+
+        if (_quadCount > 0 && textureId != _currentTextureId)
+        {
+            Flush();
+        }
+        _currentTextureId = textureId;
+
         if (_quadCount >= _maxQuads)
         {
             Flush();
         }
 
         int vIdx = _quadCount * 4;
-        _vertices[vIdx + 0] = new Vertex2D(x, y, 0f, 0f, color);
-        _vertices[vIdx + 1] = new Vertex2D(x + width, y, 1f, 0f, color);
-        _vertices[vIdx + 2] = new Vertex2D(x + width, y + height, 1f, 1f, color);
-        _vertices[vIdx + 3] = new Vertex2D(x, y + height, 0f, 1f, color);
+        _vertices[vIdx + 0] = new Vertex2D(x, y, u0, v0, color);
+        _vertices[vIdx + 1] = new Vertex2D(x + width, y, u1, v0, color);
+        _vertices[vIdx + 2] = new Vertex2D(x + width, y + height, u1, v1, color);
+        _vertices[vIdx + 3] = new Vertex2D(x, y + height, u0, v1, color);
 
         _quadCount++;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void DrawSprite(int textureId, float x, float y, float width, float height, Color32 color)
-    {
-        // For basic sprite batching without multi-texture splits, route to DrawQuad
-        DrawQuad(x, y, width, height, color);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -90,7 +105,7 @@ public sealed unsafe class SpriteBatch : IDisposable
 
         var vSpan = new ReadOnlySpan<Vertex2D>(_vertices, _quadCount * 4);
         var iSpan = new ReadOnlySpan<uint>(_indices, _quadCount * 6);
-        _renderer.DrawBatch(vSpan, iSpan);
+        _renderer.DrawBatch(vSpan, iSpan, _currentTextureId);
 
         _quadCount = 0;
     }

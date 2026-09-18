@@ -41,4 +41,22 @@ public class RenderingTests
         Assert.True(renderer.TotalDrawCalls >= 3);
         Assert.Equal(480, renderer.TotalVerticesRendered); // 120 * 4
     }
+
+    [Fact]
+    public void SpriteBatch_TextureChange_TriggersBatchSplit()
+    {
+        using var renderer = new HeadlessRenderer(800, 600);
+        using var batch = new SpriteBatch(renderer, maxQuads: 1024);
+
+        batch.Begin();
+        batch.DrawSprite(1, 0, 0, 10, 10, new Color32(255, 255, 255, 255));
+        batch.DrawSprite(1, 10, 10, 10, 10, new Color32(255, 255, 255, 255));
+        // Texture change to 2 should flush the 2 quads from texture 1
+        batch.DrawSprite(2, 20, 20, 10, 10, new Color32(255, 255, 255, 255));
+        batch.End();
+
+        Assert.Equal(2, renderer.TotalDrawCalls);
+        Assert.Equal(12, renderer.TotalVerticesRendered); // 3 quads * 4 vertices
+        Assert.Equal(2, renderer.LastTextureId);
+    }
 }

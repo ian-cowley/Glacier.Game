@@ -15,6 +15,7 @@ public sealed class HeadlessRenderer : IRenderer
     public long TotalDrawCalls { get; private set; }
     public long TotalVerticesRendered { get; private set; }
     public long TotalFramesPresented { get; private set; }
+    public int LastTextureId { get; private set; }
 
     public HeadlessRenderer(int width = 1920, int height = 1080)
     {
@@ -35,8 +36,14 @@ public sealed class HeadlessRenderer : IRenderer
 
     public void DrawBatch(ReadOnlySpan<Vertex2D> vertices, ReadOnlySpan<uint> indices)
     {
+        DrawBatch(vertices, indices, 0);
+    }
+
+    public void DrawBatch(ReadOnlySpan<Vertex2D> vertices, ReadOnlySpan<uint> indices, int textureId)
+    {
         TotalDrawCalls++;
         TotalVerticesRendered += vertices.Length;
+        LastTextureId = textureId;
     }
 
     public void End()

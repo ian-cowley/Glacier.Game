@@ -15,6 +15,8 @@ public sealed unsafe class SilkRenderer : IRenderer
     private uint _ebo;
     private uint _shaderProgram;
     private int _uProjectionLoc;
+    private int _uTextureLoc;
+    private uint _whiteTexture;
     private bool _initialized;
     private bool _disposed;
 
@@ -46,22 +48,27 @@ layout (location = 0) in vec2 aPos;
 layout (location = 1) in vec2 aTexCoord;
 layout (location = 2) in vec4 aColor;
 
+out vec2 vTexCoord;
 out vec4 vColor;
 uniform mat4 uProjection;
 
 void main()
 {
     gl_Position = uProjection * vec4(aPos, 0.0, 1.0);
+    vTexCoord = aTexCoord;
     vColor = aColor;
 }";
 
         const string fragmentShaderSource = @"#version 330 core
+in vec2 vTexCoord;
 in vec4 vColor;
 out vec4 FragColor;
 
+uniform sampler2D uTexture;
+
 void main()
 {
-    FragColor = vColor;
+    FragColor = texture(uTexture, vTexCoord) * vColor;
 }";
 
         uint vs = _gl.CreateShader(ShaderType.VertexShader);
@@ -81,6 +88,17 @@ void main()
         _gl.DeleteShader(fs);
 
         _uProjectionLoc = _gl.GetUniformLocation(_shaderProgram, "uProjection");
+        _uTextureLoc = _gl.GetUniformLocation(_shaderProgram, "uTexture");
+
+        // 1x1 white default texture
+        _whiteTexture = _gl.GenTexture();
+        _gl.BindTexture(TextureTarget.Texture2D, _whiteTexture);
+        uint whitePixel = 0xFFFFFFFF;
+        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba, 1, 1, 0, PixelFormat.Rgba, PixelType.UnsignedByte, &whitePixel);
+        int nearestFilter = (int)TextureMinFilter.Nearest;
+        _gl.TexParameterI(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, in nearestFilter);
+        _gl.TexParameterI(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, in nearestFilter);
+        _gl.BindTexture(TextureTarget.Texture2D, 0);
 
         // 2. Setup dynamic VAO, VBO, EBO
         _vao = _gl.GenVertexArray();
@@ -128,6 +146,13 @@ void main()
 
         _gl.UseProgram(_shaderProgram);
 
+        _gl.ActiveTexture(TextureUnit.Texture0);
+        _gl.BindTexture(TextureTarget.Texture2D, _whiteTexture);
+        if (_uTextureLoc >= 0)
+        {
+            _gl.Uniform1(_uTextureLoc, 0);
+        }
+
         // Orthographic projection matrix: top-left (0,0) to bottom-right (Width, Height)
         float[] ortho = new float[16]
         {
@@ -146,7 +171,20 @@ void main()
 
     public void DrawBatch(ReadOnlySpan<Vertex2D> vertices, ReadOnlySpan<uint> indices)
     {
+        DrawBatch(vertices, indices, 0);
+    }
+
+    public void DrawBatch(ReadOnlySpan<Vertex2D> vertices, ReadOnlySpan<uint> indices, int textureId)
+    {
         if (_gl == null || vertices.Length == 0) return;
+
+        uint texId = textureId > 0 ? (uint)textureId : _whiteTexture;
+        _gl.ActiveTexture(TextureUnit.Texture0);
+        _gl.BindTexture(TextureTarget.Texture2D, texId);
+        if (_uTextureLoc >= 0)
+        {
+            _gl.Uniform1(_uTextureLoc, 0);
+        }
 
         fixed (Vertex2D* pV = vertices)
         fixed (uint* pI = indices)
@@ -180,6 +218,11 @@ void main()
 
         if (_gl != null && _initialized)
         {
+            if (_whiteTexture != 0)
+            {
+                _gl.DeleteTexture(_whiteTexture);
+                _whiteTexture = 0;
+            }
             _gl.DeleteProgram(_shaderProgram);
             _gl.DeleteBuffer(_vbo);
             _gl.DeleteBuffer(_ebo);
