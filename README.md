@@ -124,6 +124,14 @@ engine.Run();
 
 ---
 
+## 🆕 What's New in v1.0.2
+
+- **Native texture sampling pipeline** in `SpriteBatch` and fragment shaders — hardware-sampled textures replace the previous software rasterization fallback.
+- **`IRenderer.DrawBatch(int textureId)` overload** — batched texture rendering reduces GPU state changes and draw calls per frame.
+- **20 tests** passing (100 %).
+
+---
+
 ## Credits
 
 Developed by Ian Cowley and Antigravity (Google DeepMind).
