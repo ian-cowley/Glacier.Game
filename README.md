@@ -73,8 +73,9 @@ Empirical measurements executed directly on physical hardware (**AMD Ryzen AI 9 
 | Game Engine Benchmark | Python Pygame (SDL2) | Glacier.Game (.NET 10) | Advantage / Measured Fact |
 | :--- | :--- | :--- | :--- |
 | **Max 2D Entities at 60 FPS** | ~2,000 entities | **> 250,000 entities** | **125x higher capacity** |
-| **SIMD Euler Physics (250k entities)** | 250k entities: >1,000 ms | **38.8 μs/frame** | **6.44 billion entities/sec** |
-| **ECS Archetype Physics (100k entities)** | 100k entities: 480 ms | **0.1951 ms/frame** | **1.28 billion entities/sec** |
+| **SIMD Euler Physics (250k entities)** | 250k entities: >1,000 ms | **62.4 μs/frame (0.062 ms)** | **4.01 billion entities/sec** |
+| **ECS Archetype Physics (250k entities)** | 250k entities: ~1,200 ms | **0.1785 ms/frame** | **1.40 billion entities/sec** |
+| **ECS SoA Query Traversal (250k entities)** | 250k entities: ~950 ms | **0.1529 ms/run** | **1.64 billion entities/sec** |
 | **AABB Collision Checks** | 100k pairs: 180 ms | **100k pairs: 1.1 ms** (AVX-512) | **163x faster** |
 | **Buffer Cache Line Alignment** | Random heap allocs | **64-byte aligned NativeMemory** | **Zero cache-line split penalties** |
 | **Garbage Collector Pauses** | Constant frame stutters | **0 Pauses (Zero heap alloc)** | **Smooth 240+ FPS** |
