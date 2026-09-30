@@ -59,4 +59,39 @@ public class RenderingTests
         Assert.Equal(12, renderer.TotalVerticesRendered); // 3 quads * 4 vertices
         Assert.Equal(2, renderer.LastTextureId);
     }
+
+    [Fact]
+    public void GlacierGraphicsGameRenderer_RendersAndEncodesPng()
+    {
+        using var renderer = new GlacierGraphicsGameRenderer(640, 480);
+        using var batch = new SpriteBatch(renderer, maxQuads: 256);
+
+        batch.Begin();
+        batch.DrawQuad(50, 50, 100, 100, Color32.Cyan);
+        batch.DrawQuad(200, 150, 80, 80, Color32.Red);
+        batch.End();
+        renderer.Present();
+
+        Assert.Equal(1, renderer.TotalDrawCalls);
+        Assert.Equal(8, renderer.TotalVerticesRendered);
+        Assert.Equal(1, renderer.TotalFramesPresented);
+
+        byte[] png = renderer.EncodeToPng();
+        Assert.NotNull(png);
+        Assert.True(png.Length > 64);
+        Assert.Equal(0x89, png[0]);
+        Assert.Equal(0x50, png[1]);
+        Assert.Equal(0x4E, png[2]);
+        Assert.Equal(0x47, png[3]);
+    }
+
+    [Fact]
+    public void GlacierGameWindowFactory_CreatesHeadlessWindow()
+    {
+        using var win = GlacierGameWindowFactory.CreateHeadlessGameWindow(1280, 720);
+        Assert.NotNull(win);
+        Assert.Equal(1280, win.Size.Width);
+        Assert.Equal(720, win.Size.Height);
+    }
 }
+

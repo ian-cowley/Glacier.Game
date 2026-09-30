@@ -12,15 +12,15 @@
 
     <!-- NuGet Package Properties -->
     <PackageId>Glacier.Game</PackageId>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <Authors>Ian Cowley</Authors>
     <Company>Glacier High-Performance Ecosystem</Company>
-    <Description>High-performance data-oriented Entity Component System (ECS) 2D/3D game engine for .NET 10 with AVX-512 physics, Silk.NET GPU rendering, and zero-allocation hot paths. Native C# alternative to Python Pygame.</Description>
+    <Description>High-performance data-oriented Entity Component System (ECS) 2D/3D game engine for .NET 10 with AVX-512 physics, Glacier.Windowing native zero-allocation loop, Glacier.Graphics software/GPU rasterization, Silk.NET fallback, and zero-allocation hot paths.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/ian-cowley/Glacier.Game</PackageProjectUrl>
     <RepositoryUrl>https://github.com/ian-cowley/Glacier.Game.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>game;ecs;gamedev;pygame;simd;avx512;silknet;opengl;vulkan;physics;net10;aot;glacier</PackageTags>
+    <PackageTags>game;ecs;gamedev;pygame;simd;avx512;windowing;graphics;opengl;vulkan;physics;net10;aot;glacier</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
@@ -29,6 +29,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Glacier.Windowing" Version="1.0.0" />
+    <PackageReference Include="Glacier.Graphics" Version="1.0.0" />
     <PackageReference Include="Glacier.Polaris" Version="1.0.17" />
     <PackageReference Include="Glacier.Tensor" Version="1.0.7" />
     <PackageReference Include="Glacier.Gpu" Version="1.0.7" />
