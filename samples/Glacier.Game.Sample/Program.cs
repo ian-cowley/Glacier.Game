@@ -9,7 +9,6 @@ using Glacier.Game.Ecs;
 using Glacier.Game.Interop;
 using Glacier.Game.Physics;
 using Glacier.Game.Rendering;
-using Silk.NET.Input;
 using Position2D = Glacier.Game.Physics.Position2D;
 
 public class Program
@@ -38,7 +37,7 @@ public class Program
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("================================================================================");
         Console.WriteLine("     GLACIER.GAME: High-Performance Data-Oriented Game Engine for .NET 10        ");
-        Console.WriteLine("         Zero-Allocation ECS | AVX-512 SIMD Physics | Silk.NET GPU              ");
+        Console.WriteLine("         Zero-Allocation ECS | AVX-512 SIMD Physics | Native HAL & Swapchain     ");
         Console.WriteLine("================================================================================");
         Console.ResetColor();
         Console.WriteLine("\n>> Launching interactive GPU window on screen...");
@@ -187,7 +186,7 @@ public class Program
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("================================================================================");
         Console.WriteLine("     GLACIER.GAME: High-Performance Data-Oriented Game Engine for .NET 10        ");
-        Console.WriteLine("         Zero-Allocation ECS | AVX-512 SIMD Physics | Silk.NET GPU              ");
+        Console.WriteLine("         Zero-Allocation ECS | AVX-512 SIMD Physics | Native HAL & Swapchain     ");
         Console.WriteLine("================================================================================");
         Console.ResetColor();
 
@@ -368,7 +367,7 @@ public class Program
             canvas.DrawText($"Glacier.Game ECS Engine — 25,000 Orbital Vortex Particles @ 240Hz", 30f, 50f, textPaint);
             textPaint.TextSize = 16f;
             textPaint.Color = new SkiaSharp.SKColor(150, 180, 210);
-            canvas.DrawText($"AVX-512 SIMD Integration | Zero-Allocation Archetype SoA | Silk.NET Native", 30f, 80f, textPaint);
+            canvas.DrawText($"AVX-512 SIMD Integration | Zero-Allocation Archetype SoA | Native HAL & Swapchain", 30f, 80f, textPaint);
 
             using var img = SkiaSharp.SKImage.FromBitmap(bmp);
             using var data = img.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);

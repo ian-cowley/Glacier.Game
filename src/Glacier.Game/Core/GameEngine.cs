@@ -4,18 +4,20 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
+using Glacier.Game.Audio;
 using Glacier.Game.Collision;
 using Glacier.Game.Ecs;
 using Glacier.Game.Physics;
 using Glacier.Game.Rendering;
-using Silk.NET.Windowing;
-using Silk.NET.OpenGL;
-using Silk.NET.Input;
+using Glacier.Windowing;
+using Glacier.Windowing.Audio;
+using Glacier.Windowing.Input;
+using Glacier.Windowing.Platform;
 using Position2D = Glacier.Game.Physics.Position2D;
 
 /// <summary>
-/// High-performance data-oriented 2D game engine orchestrating ECS systems, fixed timestep physics,
-/// and batched Silk.NET GPU/headless rendering at 240+ FPS.
+/// High-performance data-oriented 2D/3D game engine orchestrating ECS systems, fixed timestep physics,
+/// and native HAL Direct3D 12 / Vulkan swapchain presentation at 240+ FPS with zero third-party native dependencies.
 /// </summary>
 public sealed class GameEngine : IDisposable
 {
@@ -23,8 +25,11 @@ public sealed class GameEngine : IDisposable
     private SpriteBatch _spriteBatch;
     private readonly Stopwatch _stopwatch = new();
     private IWindow? _window;
-    private GL? _gl;
-    private IInputContext? _input;
+    private ISwapchain? _swapchain;
+    private readonly AudioManager? _audio;
+    private readonly InputState _input;
+    private bool _ownsWindow;
+    private bool _ownsSwapchain;
     private bool _disposed;
     private double _lastTime;
     private double _accumulator;
@@ -37,7 +42,56 @@ public sealed class GameEngine : IDisposable
     public WindowConfig Config { get; }
     public bool IsRunning { get; private set; }
 
-    public IInputContext? Input => _input;
+    /// <summary>
+    /// Gets the operating system window hosting the game engine.
+    /// </summary>
+    public IWindow Window
+    {
+        get
+        {
+            if (_window == null)
+            {
+                EnsureWindowCreated();
+            }
+            return _window!;
+        }
+    }
+
+    /// <summary>
+    /// Gets the hardware swapchain driving display presentation.
+    /// </summary>
+    public ISwapchain? Swapchain
+    {
+        get
+        {
+            if (_swapchain == null)
+            {
+                EnsureSwapchainCreated();
+            }
+            return _swapchain;
+        }
+    }
+
+    /// <summary>
+    /// Gets the hardware audio output device.
+    /// </summary>
+    public IAudioDevice? AudioDevice => _audio?.Device;
+
+    /// <summary>
+    /// Gets the low-latency lock-free audio stream.
+    /// </summary>
+    public IAudioStream? AudioStream => _audio?.Stream;
+
+    /// <summary>
+    /// Gets the integrated audio manager.
+    /// </summary>
+    public AudioManager? Audio => _audio;
+
+    /// <summary>
+    /// Gets the current unified input state (Keyboard, Mouse, Gamepad).
+    /// </summary>
+    public InputState Input => _input;
+
     public Vector2 MousePosition { get; set; }
     public bool IsLeftMouseDown { get; set; }
     public bool IsRightMouseDown { get; set; }
@@ -47,14 +101,141 @@ public sealed class GameEngine : IDisposable
     public event Action<GameTime, IRenderer>? RenderFrame;
     public event Action<Key>? KeyDown;
 
-    public GameEngine(WindowConfig? config = null, IRenderer? renderer = null)
+    public GameEngine(
+        WindowConfig? config = null,
+        IRenderer? renderer = null,
+        IWindow? window = null,
+        IAudioDevice? audioDevice = null)
     {
         Config = config ?? new WindowConfig();
         World = new World();
         Time = new GameTime();
+        _input = new InputState();
 
-        Renderer = renderer ?? new HeadlessRenderer(Config.Width, Config.Height);
+        if (window != null)
+        {
+            _window = window;
+            _ownsWindow = false;
+            AttachWindowEvents(_window);
+        }
+        else if (Config.Headless)
+        {
+            _window = GlacierGameWindowFactory.CreateHeadlessGameWindow(Config.Width, Config.Height);
+            _ownsWindow = true;
+            AttachWindowEvents(_window);
+        }
+
+        Renderer = renderer ?? new GlacierGraphicsGameRenderer(Config.Width, Config.Height);
         _spriteBatch = new SpriteBatch(Renderer, 131072);
+
+        // Initialize sub-3ms audio subsystem via AudioFactory
+        try
+        {
+            var device = audioDevice ?? AudioFactory.CreateDefaultDevice(48000, 2);
+            IAudioStream? stream = null;
+            try
+            {
+                stream = AudioFactory.CreateStream(48000, 2, 16384);
+            }
+            catch
+            {
+                stream = null;
+            }
+            _audio = new AudioManager(device, stream);
+        }
+        catch
+        {
+            _audio = null;
+        }
+    }
+
+    private void EnsureWindowCreated()
+    {
+        if (_window != null) return;
+
+        if (Config.Headless)
+        {
+            _window = GlacierGameWindowFactory.CreateHeadlessGameWindow(Config.Width, Config.Height);
+        }
+        else
+        {
+            _window = GlacierGameWindowFactory.CreateGameWindow(Config.Title, Config.Width, Config.Height);
+        }
+        _ownsWindow = true;
+        AttachWindowEvents(_window);
+    }
+
+    private void EnsureSwapchainCreated()
+    {
+        if (_swapchain != null) return;
+        EnsureWindowCreated();
+
+        var swapDesc = new SwapchainDescription(
+            Config.Width,
+            Config.Height,
+            BufferCount: 2,
+            EnableHdr: false,
+            LowLatencyWaitable: true);
+        _swapchain = _window!.CreateSwapchain(swapDesc);
+        _ownsSwapchain = true;
+        if (Renderer is GlacierGraphicsGameRenderer ggr)
+        {
+            ggr.Swapchain = _swapchain;
+        }
+    }
+
+    private void AttachWindowEvents(IWindow window)
+    {
+        window.InputReceived += OnInputReceived;
+        window.Resized += OnWindowResized;
+        window.Closing += OnWindowClosing;
+    }
+
+    private void OnInputReceived(InputEvent evt)
+    {
+        _input.OnInput(evt);
+
+        switch (evt.Type)
+        {
+            case InputEventType.KeyDown:
+            {
+                var key = (Key)evt.KeyOrButton;
+                KeyDown?.Invoke(key);
+                if (key == Key.Escape)
+                {
+                    Stop();
+                }
+                break;
+            }
+            case InputEventType.MouseMove:
+            {
+                MousePosition = new Vector2(evt.X, evt.Y);
+                break;
+            }
+            case InputEventType.MouseDown:
+            {
+                if (evt.KeyOrButton == 0) IsLeftMouseDown = true;
+                else if (evt.KeyOrButton == 1) IsRightMouseDown = true;
+                break;
+            }
+            case InputEventType.MouseUp:
+            {
+                if (evt.KeyOrButton == 0) IsLeftMouseDown = false;
+                else if (evt.KeyOrButton == 1) IsRightMouseDown = false;
+                break;
+            }
+        }
+    }
+
+    private void OnWindowResized(int width, int height)
+    {
+        Renderer.Initialize(width, height);
+        _swapchain?.Resize(width, height);
+    }
+
+    private void OnWindowClosing()
+    {
+        IsRunning = false;
     }
 
     /// <summary>
@@ -82,37 +263,13 @@ public sealed class GameEngine : IDisposable
     }
 
     /// <summary>
-    /// Starts the game loop. If Headless is configured, runs headless; otherwise opens Silk.NET window.
+    /// Starts the native HAL game loop. Connects swapchain presentation and polls window events.
     /// </summary>
     public void Run()
     {
-        if (Config.Headless)
-        {
-            RunHeadless();
-            return;
-        }
+        EnsureSwapchainCreated();
+        var win = _window!;
 
-        var options = WindowOptions.Default;
-        options.Title = Config.Title;
-        options.Size = new Silk.NET.Maths.Vector2D<int>(Config.Width, Config.Height);
-        options.FramesPerSecond = Config.TargetFps;
-        options.UpdatesPerSecond = Config.FixedTimeStepHz;
-        options.VSync = Config.IsVsync;
-
-        _window = Window.Create(options);
-
-        _window.Load += OnWindowLoad;
-        _window.Update += OnWindowUpdate;
-        _window.Render += OnWindowRender;
-        _window.Closing += OnWindowClosing;
-
-        IsRunning = true;
-        _stopwatch.Restart();
-        _window.Run();
-    }
-
-    private void RunHeadless()
-    {
         IsRunning = true;
         Load?.Invoke();
         _stopwatch.Restart();
@@ -120,8 +277,10 @@ public sealed class GameEngine : IDisposable
         _accumulator = 0.0;
         double fixedDt = 1.0 / Config.FixedTimeStepHz;
 
-        while (IsRunning)
+        while (IsRunning && (Config.Headless || win.IsVisible))
         {
+            win.PollEvents();
+
             double currentTime = _stopwatch.Elapsed.TotalSeconds;
             double frameTime = currentTime - _lastTime;
             _lastTime = currentTime;
@@ -136,67 +295,22 @@ public sealed class GameEngine : IDisposable
             }
 
             Render();
-        }
-    }
 
-    private void OnWindowLoad()
-    {
-        if (_window != null)
-        {
-            _gl = _window.CreateOpenGL();
-            Renderer = new SilkRenderer(_gl, Config.Width, Config.Height);
-            _spriteBatch.Dispose();
-            _spriteBatch = new SpriteBatch(Renderer, 131072);
-
-            _input = _window.CreateInput();
-            foreach (var mouse in _input.Mice)
+            if (!Config.Headless)
             {
-                mouse.MouseMove += (_, pos) => MousePosition = new Vector2(pos.X, pos.Y);
-                mouse.MouseDown += (_, btn) =>
+                _fpsFrames++;
+                _fpsTimer += frameTime;
+                if (_fpsTimer >= 0.25)
                 {
-                    if (btn == MouseButton.Left) IsLeftMouseDown = true;
-                    if (btn == MouseButton.Right) IsRightMouseDown = true;
-                };
-                mouse.MouseUp += (_, btn) =>
-                {
-                    if (btn == MouseButton.Left) IsLeftMouseDown = false;
-                    if (btn == MouseButton.Right) IsRightMouseDown = false;
-                };
-            }
-            foreach (var kb in _input.Keyboards)
-            {
-                kb.KeyDown += (_, key, _) =>
-                {
-                    KeyDown?.Invoke(key);
-                    if (key == Key.Escape) Stop();
-                };
+                    double currentFps = _fpsFrames / _fpsTimer;
+                    win.Title = $"{Config.Title} | {World.EntityCount:N0} Entities | {currentFps:F0} FPS ({(frameTime * 1000.0):F2} ms)";
+                    _fpsFrames = 0;
+                    _fpsTimer = 0;
+                }
             }
         }
 
-        Load?.Invoke();
-    }
-
-    private void OnWindowUpdate(double dt)
-    {
-        Step((float)dt);
-
-        _fpsFrames++;
-        _fpsTimer += dt;
-        if (_fpsTimer >= 0.25)
-        {
-            double currentFps = _fpsFrames / _fpsTimer;
-            if (_window != null)
-            {
-                _window.Title = $"{Config.Title} | {World.EntityCount:N0} Entities | {currentFps:F0} FPS ({(dt * 1000.0):F2} ms)";
-            }
-            _fpsFrames = 0;
-            _fpsTimer = 0;
-        }
-    }
-
-    private void OnWindowRender(double dt)
-    {
-        Render();
+        IsRunning = false;
     }
 
     /// <summary>
@@ -204,6 +318,7 @@ public sealed class GameEngine : IDisposable
     /// </summary>
     public void Render()
     {
+        EnsureSwapchainCreated();
         _spriteBatch.Begin();
 
         // 1. Render entities having Position2D, AABB2D, and Color32
@@ -236,30 +351,40 @@ public sealed class GameEngine : IDisposable
         RenderFrame?.Invoke(Time, Renderer);
 
         Renderer.Present();
-    }
-
-    private void OnWindowClosing()
-    {
-        IsRunning = false;
+        _swapchain?.Present(Config.IsVsync);
     }
 
     public void Stop()
     {
         IsRunning = false;
-        _window?.Close();
+        if (_window != null)
+        {
+            _window.IsVisible = false;
+        }
     }
+
+    public void PlaySound(ReadOnlySpan<float> samples) => _audio?.PlaySamples(samples);
+    public void PlaySound(AudioClip clip) => _audio?.PlayClip(clip);
+    public void PlayTone(float frequencyHz, float durationSec, float volume = 0.5f) => _audio?.PlayTone(frequencyHz, durationSec, volume);
+    public void SetMasterVolume(float volume) => _audio?.SetMasterVolume(volume);
 
     public void Dispose()
     {
         if (!_disposed)
         {
+            _disposed = true;
             _spriteBatch.Dispose();
             Renderer.Dispose();
-            _input?.Dispose();
-            _gl?.Dispose();
-            _window?.Dispose();
+            if (_ownsSwapchain)
+            {
+                _swapchain?.Dispose();
+            }
+            if (_ownsWindow)
+            {
+                _window?.Dispose();
+            }
+            _audio?.Dispose();
             World.Dispose();
-            _disposed = true;
         }
     }
 }

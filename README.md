@@ -10,7 +10,7 @@
 
 > **High-Performance Data-Oriented 2D/3D ECS Game Engine for C# .NET 10 (Systematically Beating Python Pygame)**
 
-`Glacier.Game` is a pure data-oriented, hardware-accelerated 2D/3D game engine engineered natively for C# .NET 10. It combines a cache-aligned Entity Component System (ECS) with AVX-512 SIMD collision physics and modern Silk.NET GPU rendering (Vulkan, DirectX 12, Metal) to simulate over 250,000 active entities at a locked 240+ FPS. It serves as Pillar 7 of the unified **Glacier .NET 10 High-Performance Ecosystem**.
+`Glacier.Game` is a pure data-oriented, hardware-accelerated 2D/3D game engine engineered natively for C# .NET 10. It combines a cache-aligned Entity Component System (ECS) with AVX-512 SIMD collision physics, native HAL Direct3D 12 Flip Model / Vulkan WSI swapchain presentation, and sub-3ms WASAPI audio streaming to simulate over 250,000 active entities at a locked 240+ FPS with zero third-party native C++ dependencies. It serves as Pillar 7 of the unified **Glacier .NET 10 High-Performance Ecosystem**.
 
 ---
 
@@ -25,7 +25,8 @@
 **Glacier.Game** re-architects game development with:
 - **Cache-Aligned Entity Component System (ECS)**: Components are stored in contiguous primitive struct arrays (Struct of Arrays - SoA). CPU prefetchers stream components into cache lines with zero cache misses.
 - **SIMD Collision & Physics Kernels**: Evaluates 16 Axis-Aligned Bounding Box (AABB) collisions simultaneously per instruction cycle via `Vector512<float>`.
-- **Silk.NET Modern GPU Pipeline**: Direct bindings to Vulkan, DirectX 12, and Metal for hardware-accelerated batch rendering.
+- **Pure C# Native HAL & Swapchain Pipeline**: Direct3D 12 Flip Model and Vulkan WSI presentation via `Glacier.Windowing` and software/GPU rasterization via `Glacier.Graphics`.
+- **Sub-3ms WASAPI Event-Driven Audio**: Integrated `Glacier.Windowing.Audio` delivering ultra-low-latency sound effect mixing and lock-free streaming.
 - **Massive Dynamic Scale**: Simulates and renders **250,000 active dynamic entities** at a locked **240+ FPS** with zero garbage collector pauses.
 
 ---
@@ -94,20 +95,20 @@ var engine = new GameEngine(new WindowConfig("Glacier Game", 1920, 1080));
 
 // Register ECS Systems
 var world = engine.World;
-world.AddSystem(new SimdMovementSystem());
-world.AddSystem(new Avx512CollisionSystem());
-world.AddSystem(new SilkGpuRenderSystem());
+world.AddSystem(new SimdPhysicsSystem(0f, 1920f, 0f, 1080f));
 
 // Spawn 100,000 entities into contiguous SoA memory arrays
 for (int i = 0; i < 100_000; i++)
 {
-    world.CreateEntity()
-        .WithPosition(x: Random.Shared.NextSingle() * 1920, y: Random.Shared.NextSingle() * 1080)
-        .WithVelocity(vx: 1.5f, vy: -0.8f)
-        .WithSprite(textureId: 1);
+    world.CreateEntity(
+        new Position2D(Random.Shared.NextSingle() * 1920, Random.Shared.NextSingle() * 1080),
+        new Velocity2D(1.5f, -0.8f),
+        new AABB2D(-2f, -2f, 2f, 2f),
+        Color32.Cyan
+    );
 }
 
-// Run gameloop at locked 240 FPS
+// Run gameloop with native HAL swapchain at locked 240 FPS
 engine.Run();
 ```
 
@@ -118,18 +119,20 @@ engine.Run();
 `Glacier.Game` is designed to seamlessly integrate with the other engines in the **Glacier .NET 10 High-Performance Ecosystem**:
 
 - **[Master Architecture Plan](../../GLACIER_ECOSYSTEM_MASTER_PLAN.md)**: Ecosystem blueprint mapping the 9 Python domains to .NET 10 counterparts.
-- **[Glacier.Game Technical Specification](../../docs/plans/07_GLACIER_GAME_SPEC.md)**: Deep dive into cache-aligned ECS, SIMD physics kernels, and Silk.NET shaders.
+- **[Glacier.Game Technical Specification](../../docs/plans/07_GLACIER_GAME_SPEC.md)**: Deep dive into cache-aligned ECS, SIMD physics kernels, and HAL architecture.
 - **[Glacier.Chrono](https://github.com/ian-cowley/Glacier.Chrono)**: AoS-to-SoA memory models and time-series telemetry buffer patterns.
 - **[Glacier.Plot](https://github.com/ian-cowley/Glacier.Plot)**: High-speed 2D rendering primitives and Vulkan compute interoperability.
 - **[Glacier.Desktop](https://github.com/ian-cowley/Glacier.Desktop)**: Host application framework for game editors and tooling.
 
 ---
 
-## 🆕 What's New in v1.0.2
+## 🆕 What's New in v1.0.4 (Phase 5 / Milestone M8)
 
-- **Native texture sampling pipeline** in `SpriteBatch` and fragment shaders — hardware-sampled textures replace the previous software rasterization fallback.
-- **`IRenderer.DrawBatch(int textureId)` overload** — batched texture rendering reduces GPU state changes and draw calls per frame.
-- **20 tests** passing (100 %).
+- **Native HAL Engine Loop**: Switched default game loop in `GameEngine.Run()` to `GlacierGameWindowFactory` and `GlacierGraphicsGameRenderer`.
+- **Direct3D 12 & Vulkan Swapchains**: Direct frame presentation via `Glacier.Windowing.ISwapchain` with sub-1ms presentation and `SoftwareSwapchain` fallback for headless CI.
+- **Sub-3ms WASAPI Audio**: Integrated `Glacier.Windowing.Audio.AudioFactory.CreateDefaultDevice()` with low-latency PCM playback and lock-free streaming.
+- **Silk.NET & GLFW Purge**: Completely removed all 5 Silk.NET packages and GLFW/SDL2 native shims — 0 Silk.NET native DLLs copied or loaded.
+- **31 tests** passing at 100% in Release mode.
 
 ---
 

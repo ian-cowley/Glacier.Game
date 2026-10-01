@@ -9,6 +9,7 @@ using Glacier.Graphics.Raster;
 using Glacier.Graphics.Vector;
 using Glacier.Windowing;
 using Glacier.Windowing.Platform;
+using Glacier.Windowing.Swapchain.Software;
 
 /// <summary>
 /// Hardware/software renderer backed by Glacier.Graphics and Glacier.Windowing.
@@ -20,6 +21,8 @@ public sealed class GlacierGraphicsGameRenderer : IRenderer
     private CpuGraphicsCanvas _canvas;
     private System.Numerics.Matrix3x2 _transform = System.Numerics.Matrix3x2.Identity;
     private bool _disposed;
+    private readonly VectorPath _scratchPath = new VectorPath();
+    private readonly VectorPath _scratchTrianglePath;
 
     public int Width => _framebuffer.Width;
     public int Height => _framebuffer.Height;
@@ -29,11 +32,13 @@ public sealed class GlacierGraphicsGameRenderer : IRenderer
     public long TotalDrawCalls { get; private set; }
     public long TotalVerticesRendered { get; private set; }
     public long TotalFramesPresented { get; private set; }
+    public ISwapchain? Swapchain { get; set; }
 
     public GlacierGraphicsGameRenderer(int width = 1280, int height = 720)
     {
         _framebuffer = new LinearFramebuffer(width, height);
         _canvas = new CpuGraphicsCanvas(_framebuffer);
+        _scratchTrianglePath = _scratchPath;
     }
 
     public void Initialize(int width, int height)
@@ -44,6 +49,7 @@ public sealed class GlacierGraphicsGameRenderer : IRenderer
             _framebuffer.Dispose();
             _framebuffer = new LinearFramebuffer(width, height);
             _canvas = new CpuGraphicsCanvas(_framebuffer);
+            Swapchain?.Resize(width, height);
         }
     }
 
@@ -80,14 +86,14 @@ public sealed class GlacierGraphicsGameRenderer : IRenderer
                 var p1 = Vector2.Transform(v1.Position, _transform);
                 var p2 = Vector2.Transform(v2.Position, _transform);
 
-                var tri = new VectorPath();
-                tri.MoveTo(p0.X, p0.Y);
-                tri.LineTo(p1.X, p1.Y);
-                tri.LineTo(p2.X, p2.Y);
-                tri.Close();
+                _scratchPath.Clear();
+                _scratchPath.MoveTo(p0.X, p0.Y);
+                _scratchPath.LineTo(p1.X, p1.Y);
+                _scratchPath.LineTo(p2.X, p2.Y);
+                _scratchPath.Close();
 
                 var c = v0.Color;
-                _canvas.FillPath(tri, new Paint(new Rgba32(c.R, c.G, c.B, c.A), PaintStyle.Fill));
+                _canvas.FillPath(_scratchPath, new Paint(new Rgba32(c.R, c.G, c.B, c.A), PaintStyle.Fill));
             }
         }
     }
@@ -100,6 +106,18 @@ public sealed class GlacierGraphicsGameRenderer : IRenderer
     public void Present()
     {
         TotalFramesPresented++;
+        if (Swapchain != null)
+        {
+            if (Swapchain is SoftwareSwapchain sw && sw.CurrentBackBuffer != IntPtr.Zero)
+            {
+                unsafe
+                {
+                    var src = _framebuffer.AsByteSpan();
+                    var dst = new Span<byte>((void*)sw.CurrentBackBuffer, (int)sw.BufferByteSize);
+                    src.CopyTo(dst);
+                }
+            }
+        }
     }
 
     public byte[] EncodeToPng()
