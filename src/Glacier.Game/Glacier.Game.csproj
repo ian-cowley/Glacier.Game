@@ -30,9 +30,9 @@
 
   <ItemGroup>
     <PackageReference Include="Glacier.Windowing" Version="1.0.0" />
-    <PackageReference Include="Glacier.Graphics" Version="1.0.0" />
-    <PackageReference Include="Glacier.Polaris" Version="1.0.17" />
-    <PackageReference Include="Glacier.Tensor" Version="1.0.7" />
-    <PackageReference Include="Glacier.Gpu" Version="1.0.7" />
+    <PackageReference Include="Glacier.Graphics" Version="1.0.2" />
+    <PackageReference Include="Glacier.Polaris" Version="1.0.19" />
+    <PackageReference Include="Glacier.Tensor" Version="1.0.9" />
+    <PackageReference Include="Glacier.Gpu" Version="1.0.8" />
   </ItemGroup>
 </Project>
