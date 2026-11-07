@@ -6,13 +6,15 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>preview</LangVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsAotCompatible>true</IsAotCompatible>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <TieredPGO>true</TieredPGO>
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <NoWarn>$(NoWarn);CS1591;CS8981</NoWarn>
 
     <!-- NuGet Package Properties -->
     <PackageId>Glacier.Game</PackageId>
-    <Version>1.0.4</Version>
+    <Version>1.1.0</Version>
     <Authors>Ian Cowley</Authors>
     <Company>Glacier High-Performance Ecosystem</Company>
     <Description>High-performance data-oriented Entity Component System (ECS) 2D/3D game engine for .NET 10 with AVX-512 physics, Glacier.Windowing native zero-allocation loop, Glacier.Graphics software/GPU rasterization, Direct3D 12 / Vulkan swapchains, and sub-3ms WASAPI audio.</Description>
@@ -29,10 +31,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Glacier.Windowing" Version="1.0.0" />
-    <PackageReference Include="Glacier.Graphics" Version="1.0.2" />
-    <PackageReference Include="Glacier.Polaris" Version="1.0.20" />
-    <PackageReference Include="Glacier.Tensor" Version="1.0.9" />
-    <PackageReference Include="Glacier.Gpu" Version="1.0.8" />
+    <PackageReference Include="Glacier.Windowing" Version="1.1.0" />
+    <PackageReference Include="Glacier.Graphics" Version="1.1.0" />
+    <PackageReference Include="Glacier.Polaris" Version="1.1.0" />
+    <PackageReference Include="Glacier.Tensor" Version="1.1.0" />
+    <PackageReference Include="Glacier.Gpu" Version="1.1.0" />
   </ItemGroup>
 </Project>

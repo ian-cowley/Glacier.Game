@@ -14,7 +14,7 @@ public sealed unsafe class SpatialGrid2D : IDisposable
     private readonly float _cellSize;
     private readonly float _invCellSize;
     private readonly int _cellCount;
-    private readonly int _maxEntities;
+    private int _maxEntities;
 
     private int* _cellHeads;
     private int* _entityNext;
@@ -25,6 +25,10 @@ public sealed unsafe class SpatialGrid2D : IDisposable
 
     public SpatialGrid2D(float cellSize = 64f, int cellCount = 4096, int maxEntities = 300000)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cellSize);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cellCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEntities);
+
         _cellSize = cellSize;
         _invCellSize = 1.0f / cellSize;
         _cellCount = cellCount;
@@ -46,11 +50,26 @@ public sealed unsafe class SpatialGrid2D : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Insert(int entityId, float x, float y)
     {
-        if ((uint)entityId >= (uint)_maxEntities) return;
+        if (entityId < 0) return;
+        if (entityId >= _maxEntities)
+        {
+            GrowEntityCapacity(entityId + 1);
+        }
 
         int hash = ComputeCellHash(x, y);
         _entityNext[entityId] = _cellHeads[hash];
         _cellHeads[hash] = entityId;
+    }
+
+    private void GrowEntityCapacity(int required)
+    {
+        int newMax = Math.Max(_maxEntities * 2, required);
+        int* newNext = (int*)NativeMemory.Alloc((nuint)(sizeof(int) * newMax));
+        NativeMemory.Copy(_entityNext, newNext, (nuint)(sizeof(int) * _maxEntities));
+        NativeMemory.Fill(newNext + _maxEntities, (nuint)(sizeof(int) * (newMax - _maxEntities)), 0xFF);
+        NativeMemory.Free(_entityNext);
+        _entityNext = newNext;
+        _maxEntities = newMax;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -61,14 +80,27 @@ public sealed unsafe class SpatialGrid2D : IDisposable
 
         int written = 0;
         int maxResults = results.Length;
+        Span<int> visitedHashes = stackalloc int[9];
+        int visitedCount = 0;
 
         for (int dy = -1; dy <= 1; dy++)
         {
             for (int dx = -1; dx <= 1; dx++)
             {
                 int hash = HashCoords(cellX + dx, cellY + dy);
-                int curr = _cellHeads[hash];
+                bool alreadyVisited = false;
+                for (int v = 0; v < visitedCount; v++)
+                {
+                    if (visitedHashes[v] == hash)
+                    {
+                        alreadyVisited = true;
+                        break;
+                    }
+                }
+                if (alreadyVisited) continue;
+                visitedHashes[visitedCount++] = hash;
 
+                int curr = _cellHeads[hash];
                 while (curr != -1 && written < maxResults)
                 {
                     results[written++] = curr;

@@ -23,14 +23,17 @@ public sealed class AudioSystem : ISystem
 
     public void Update(World world, float dt)
     {
-        var query = world.Query<AudioEmitter>();
-        for (int i = 0; i < query.Count; i++)
+        foreach (var chunk in world.Query<AudioEmitter>())
         {
-            ref var emitter = ref query.Component1Span[i];
-            if (emitter.PlayOnSpawn)
+            var span = chunk.Component1Span;
+            for (int i = 0; i < span.Length; i++)
             {
-                _audio.PlayClip(emitter.ClipId);
-                emitter.PlayOnSpawn = false;
+                ref var emitter = ref span[i];
+                if (emitter.PlayOnSpawn)
+                {
+                    _audio.PlayClip(emitter.ClipId);
+                    emitter.PlayOnSpawn = false;
+                }
             }
         }
     }

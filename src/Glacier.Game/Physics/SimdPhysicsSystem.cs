@@ -33,12 +33,28 @@ public sealed class SimdPhysicsSystem : ISystem
     public void Update(World world, float deltaTime)
     {
         var query = world.Query<Position2D, Velocity2D>();
-        if (query.Count == 0) return;
+        if (query.TotalCount == 0) return;
 
-        // 1. SIMD Euler Integration
-        PhysicsKernels.IntegrateEuler(query.Component1Span, query.Component2Span, deltaTime);
+        float gravityStep = GravityY * deltaTime;
 
-        // 2. SIMD Boundary Clamping & Bounce Reflection
-        PhysicsKernels.ClampAndBounce(query.Component1Span, query.Component2Span, BoundsMinX, BoundsMaxX, BoundsMinY, BoundsMaxY, Restitution);
+        foreach (var chunk in query)
+        {
+            var posSpan = chunk.Component1Span;
+            var velSpan = chunk.Component2Span;
+
+            if (gravityStep != 0f)
+            {
+                for (int i = 0; i < velSpan.Length; i++)
+                {
+                    velSpan[i].Y += gravityStep;
+                }
+            }
+
+            // 1. SIMD Euler Integration
+            PhysicsKernels.IntegrateEuler(posSpan, velSpan, deltaTime);
+
+            // 2. SIMD Boundary Clamping & Bounce Reflection
+            PhysicsKernels.ClampAndBounce(posSpan, velSpan, BoundsMinX, BoundsMaxX, BoundsMinY, BoundsMaxY, Restitution);
+        }
     }
 }

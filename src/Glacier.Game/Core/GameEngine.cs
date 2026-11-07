@@ -254,6 +254,8 @@ public sealed class GameEngine : IDisposable
     {
         Time.Update(TimeSpan.FromSeconds(dt));
 
+        World.RunSystems(dt);
+
         for (int i = 0; i < _systems.Count; i++)
         {
             _systems[i].Update(World, dt);
@@ -321,27 +323,34 @@ public sealed class GameEngine : IDisposable
         EnsureSwapchainCreated();
         _spriteBatch.Begin();
 
-        // 1. Render entities having Position2D, AABB2D, and Color32
-        var query3 = World.Query<Position2D, AABB2D, Color32>();
-        if (query3.Count > 0)
+        // Render all entities having Position2D and AABB2D across every archetype
+        int colorTypeId = ComponentType<Color32>.Id;
+        var defaultColor = new Color32(50, 180, 255, 255);
+
+        foreach (var chunk in World.Query<Position2D, AABB2D>())
         {
-            for (int i = 0; i < query3.Count; i++)
+            var posSpan = chunk.Component1Span;
+            var boxSpan = chunk.Component2Span;
+
+            if (chunk.Table.Archetype.Mask.Has(colorTypeId))
             {
-                ref readonly var p = ref query3.Component1Span[i];
-                ref readonly var box = ref query3.Component2Span[i];
-                ref readonly var col = ref query3.Component3Span[i];
-                _spriteBatch.DrawQuad(p.X + box.MinX, p.Y + box.MinY, box.Width, box.Height, col);
+                var colSpan = chunk.Table.GetSpan<Color32>();
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    ref readonly var p = ref posSpan[i];
+                    ref readonly var box = ref boxSpan[i];
+                    ref readonly var col = ref colSpan[i];
+                    _spriteBatch.DrawQuad(p.X + box.MinX, p.Y + box.MinY, box.Width, box.Height, col);
+                }
             }
-        }
-        else
-        {
-            // 2. Fallback for entities with Position2D and AABB2D
-            var query2 = World.Query<Position2D, AABB2D>();
-            for (int i = 0; i < query2.Count; i++)
+            else
             {
-                ref readonly var p = ref query2.Component1Span[i];
-                ref readonly var box = ref query2.Component2Span[i];
-                _spriteBatch.DrawQuad(p.X + box.MinX, p.Y + box.MinY, box.Width, box.Height, new Color32(50, 180, 255, 255));
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    ref readonly var p = ref posSpan[i];
+                    ref readonly var box = ref boxSpan[i];
+                    _spriteBatch.DrawQuad(p.X + box.MinX, p.Y + box.MinY, box.Width, box.Height, defaultColor);
+                }
             }
         }
 

@@ -164,4 +164,39 @@ public class EcsTests
             Assert.Equal(2f, velSpan[i].Y);
         }
     }
+
+    [Fact]
+    public void Query_MultiArchetypeEnumeration_VisitsAllMatchingArchetypes()
+    {
+        using var world = new World();
+
+        // Archetype A: 10 bullets with (Position2D, Velocity2D)
+        var bullets = new Entity[10];
+        for (int i = 0; i < 10; i++)
+        {
+            bullets[i] = world.CreateEntity(new Position2D(0f, 0f), new Velocity2D(10f, 0f));
+        }
+
+        // Archetype B: 2 players with (Position2D, Velocity2D, AABB2D)
+        var p1 = world.CreateEntity(new Position2D(50f, 50f), new Velocity2D(0f, 20f), new AABB2D(-5f, -5f, 5f, 5f));
+        var p2 = world.CreateEntity(new Position2D(100f, 100f), new Velocity2D(-5f, 0f), new AABB2D(-5f, -5f, 5f, 5f));
+
+        var query = world.Query<Position2D, Velocity2D>();
+        Assert.Equal(12, query.TotalCount);
+
+        int visited = 0;
+        foreach (var chunk in query)
+        {
+            visited += chunk.Count;
+        }
+        Assert.Equal(12, visited);
+
+        // Verify SimdPhysicsSystem integrates BOTH archetypes!
+        var physics = new SimdPhysicsSystem(-1000f, 1000f, -1000f, 1000f);
+        physics.Update(world, 1.0f);
+
+        Assert.Equal(10f, world.GetComponent<Position2D>(bullets[0]).X, 3);
+        Assert.Equal(70f, world.GetComponent<Position2D>(p1).Y, 3);
+        Assert.Equal(95f, world.GetComponent<Position2D>(p2).X, 3);
+    }
 }

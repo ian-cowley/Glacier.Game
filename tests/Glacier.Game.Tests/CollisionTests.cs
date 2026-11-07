@@ -62,4 +62,21 @@ public class CollisionTests
         }
         Assert.True(found1 && found2);
     }
+
+    [Fact]
+    public void CollisionSystem_NarrowphaseAabb_DistinguishesOverlappingFromSeparatedNeighbors()
+    {
+        using var world = new World();
+        using var collisionSys = new CollisionSystem(cellSize: 64f);
+
+        // Two overlapping entities at (10, 10) and (13, 10) with 4x4 boxes -> world X [8..12] and [11..15] overlap!
+        world.CreateEntity(new Position2D(10f, 10f), new AABB2D(-2f, -2f, 2f, 2f));
+        world.CreateEntity(new Position2D(13f, 10f), new AABB2D(-2f, -2f, 2f, 2f));
+
+        // Third entity in the SAME 64px cell at (45, 10) with 4x4 box -> world X [43..47], does NOT overlap either!
+        world.CreateEntity(new Position2D(45f, 10f), new Velocity2D(1f, 0f), new AABB2D(-2f, -2f, 2f, 2f));
+
+        collisionSys.Update(world, 0.016f);
+        Assert.Equal(1, collisionSys.CollisionCount);
+    }
 }

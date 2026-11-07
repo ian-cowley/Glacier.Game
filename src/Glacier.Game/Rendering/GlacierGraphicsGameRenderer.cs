@@ -9,7 +9,6 @@ using Glacier.Graphics.Raster;
 using Glacier.Graphics.Vector;
 using Glacier.Windowing;
 using Glacier.Windowing.Platform;
-using Glacier.Windowing.Swapchain.Software;
 
 /// <summary>
 /// Hardware/software renderer backed by Glacier.Graphics and Glacier.Windowing.
@@ -22,7 +21,6 @@ public sealed class GlacierGraphicsGameRenderer : IRenderer
     private System.Numerics.Matrix3x2 _transform = System.Numerics.Matrix3x2.Identity;
     private bool _disposed;
     private readonly VectorPath _scratchPath = new VectorPath();
-    private readonly VectorPath _scratchTrianglePath;
 
     public int Width => _framebuffer.Width;
     public int Height => _framebuffer.Height;
@@ -38,7 +36,6 @@ public sealed class GlacierGraphicsGameRenderer : IRenderer
     {
         _framebuffer = new LinearFramebuffer(width, height);
         _canvas = new CpuGraphicsCanvas(_framebuffer);
-        _scratchTrianglePath = _scratchPath;
     }
 
     public void Initialize(int width, int height)
@@ -106,16 +103,14 @@ public sealed class GlacierGraphicsGameRenderer : IRenderer
     public void Present()
     {
         TotalFramesPresented++;
-        if (Swapchain != null)
+        if (Swapchain != null && Swapchain.CurrentBackBuffer != IntPtr.Zero &&
+            Swapchain.Width == Width && Swapchain.Height == Height)
         {
-            if (Swapchain is SoftwareSwapchain sw && sw.CurrentBackBuffer != IntPtr.Zero)
+            unsafe
             {
-                unsafe
-                {
-                    var src = _framebuffer.AsByteSpan();
-                    var dst = new Span<byte>((void*)sw.CurrentBackBuffer, (int)sw.BufferByteSize);
-                    src.CopyTo(dst);
-                }
+                ReadOnlySpan<byte> src = _framebuffer.AsByteSpan();
+                var dst = new Span<byte>((void*)Swapchain.CurrentBackBuffer, src.Length);
+                src.CopyTo(dst);
             }
         }
     }

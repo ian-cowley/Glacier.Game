@@ -6,7 +6,7 @@ using Glacier.Game.Ecs;
 using Glacier.Game.Physics;
 
 /// <summary>
-/// ECS system coordinating broadphase spatial hash acceleration and SIMD narrowphase collision checks.
+/// ECS system coordinating broadphase spatial hash acceleration and narrowphase world-space AABB intersection tests.
 /// </summary>
 public sealed class CollisionSystem : ISystem, IDisposable
 {
@@ -24,42 +24,71 @@ public sealed class CollisionSystem : ISystem, IDisposable
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void Update(World world, float deltaTime)
     {
+        _collisionCount = 0;
         var query = world.Query<Position2D, AABB2D>();
-        int count = query.Count;
-        if (count == 0) return;
+        if (query.TotalCount == 0) return;
 
         _grid.Clear();
-        _collisionCount = 0;
 
-        var positions = query.Component1Span;
-        var boxes = query.Component2Span;
-        var entities = query.Entities;
-
-        // 1. Broadphase: Insert entities into spatial hash grid
-        for (int i = 0; i < count; i++)
+        // 1. Broadphase: Insert entities across all matching archetypes into spatial hash grid by world AABB center
+        foreach (var chunk in query)
         {
-            _grid.Insert(entities[i].Id, positions[i].X, positions[i].Y);
+            var positions = chunk.Component1Span;
+            var boxes = chunk.Component2Span;
+            var entities = chunk.Entities;
+
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                ref readonly Position2D pos = ref positions[i];
+                ref readonly AABB2D box = ref boxes[i];
+                float cx = pos.X + (box.MinX + box.MaxX) * 0.5f;
+                float cy = pos.Y + (box.MinY + box.MaxY) * 0.5f;
+                _grid.Insert(entities[i].Id, cx, cy);
+            }
         }
 
-        // 2. Narrowphase: Query neighbors and perform collision checks
-        Span<int> neighbors = stackalloc int[64];
-        Span<ushort> mask = stackalloc ushort[4];
+        // 2. Narrowphase: Query spatial neighbors and test exact world-space AABB overlap
+        Span<int> neighbors = stackalloc int[256];
 
-        for (int i = 0; i < count; i++)
+        foreach (var chunk in query)
         {
-            int neighborCount = _grid.QueryNeighbors(positions[i].X, positions[i].Y, neighbors);
-            if (neighborCount <= 1) continue;
+            var positions = chunk.Component1Span;
+            var boxes = chunk.Component2Span;
+            var entities = chunk.Entities;
 
-            // Check against target box
-            ref readonly AABB2D targetBox = ref boxes[i];
-            int currentId = entities[i].Id;
-
-            for (int n = 0; n < neighborCount; n++)
+            for (int i = 0; i < chunk.Count; i++)
             {
-                int otherId = neighbors[n];
-                if (otherId > currentId) // Avoid double testing pairs
+                ref readonly Position2D posA = ref positions[i];
+                ref readonly AABB2D boxA = ref boxes[i];
+                float cxA = posA.X + (boxA.MinX + boxA.MaxX) * 0.5f;
+                float cyA = posA.Y + (boxA.MinY + boxA.MaxY) * 0.5f;
+
+                int neighborCount = _grid.QueryNeighbors(cxA, cyA, neighbors);
+                if (neighborCount <= 1) continue;
+
+                float minXA = posA.X + boxA.MinX;
+                float maxXA = posA.X + boxA.MaxX;
+                float minYA = posA.Y + boxA.MinY;
+                float maxYA = posA.Y + boxA.MaxY;
+                int currentId = entities[i].Id;
+
+                for (int n = 0; n < neighborCount; n++)
                 {
-                    _collisionCount++;
+                    int otherId = neighbors[n];
+                    if (otherId <= currentId) continue; // Avoid self and duplicate unordered pairs
+
+                    if (world.TryGetPositionAndBounds(otherId, out Position2D posB, out AABB2D boxB))
+                    {
+                        float minXB = posB.X + boxB.MinX;
+                        float maxXB = posB.X + boxB.MaxX;
+                        float minYB = posB.Y + boxB.MinY;
+                        float maxYB = posB.Y + boxB.MaxY;
+
+                        if (minXA <= maxXB && maxXA >= minXB && minYA <= maxYB && maxYA >= minYB)
+                        {
+                            _collisionCount++;
+                        }
+                    }
                 }
             }
         }

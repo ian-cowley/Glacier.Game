@@ -3,6 +3,8 @@ namespace Glacier.Game.Ecs;
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Glacier.Game.Physics;
 
 /// <summary>
 /// Record mapping an Entity Id to its current ArchetypeTable and row index.
@@ -268,22 +270,22 @@ public sealed class World : IDisposable
     }
 
     /// <summary>
-    /// Gets a zero-allocation query over the primary archetype table matching T1.
+    /// Gets a zero-allocation query matching T1 across all archetype tables.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Query<T1> Query<T1>() where T1 : unmanaged
     {
         var mask = ComponentMask.Empty.With(ComponentType<T1>.Id);
-        var table = FindPrimaryTable(mask);
+        var table = FindPrimaryTable(mask, out int totalCount);
         if (table == null || table.Count == 0)
         {
             return new Query<T1>(Span<T1>.Empty, ReadOnlySpan<Entity>.Empty);
         }
-        return new Query<T1>(table.GetSpan<T1>(), table.GetEntities());
+        return new Query<T1>(table.GetSpan<T1>(), table.GetEntities(), CollectionsMarshal.AsSpan(_tableList), mask, totalCount);
     }
 
     /// <summary>
-    /// Gets a zero-allocation query over the primary archetype table matching T1 and T2.
+    /// Gets a zero-allocation query matching T1 and T2 across all archetype tables.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Query<T1, T2> Query<T1, T2>() 
@@ -293,16 +295,16 @@ public sealed class World : IDisposable
         var mask = ComponentMask.Empty
             .With(ComponentType<T1>.Id)
             .With(ComponentType<T2>.Id);
-        var table = FindPrimaryTable(mask);
+        var table = FindPrimaryTable(mask, out int totalCount);
         if (table == null || table.Count == 0)
         {
             return new Query<T1, T2>(Span<T1>.Empty, Span<T2>.Empty, ReadOnlySpan<Entity>.Empty);
         }
-        return new Query<T1, T2>(table.GetSpan<T1>(), table.GetSpan<T2>(), table.GetEntities());
+        return new Query<T1, T2>(table.GetSpan<T1>(), table.GetSpan<T2>(), table.GetEntities(), CollectionsMarshal.AsSpan(_tableList), mask, totalCount);
     }
 
     /// <summary>
-    /// Gets a zero-allocation query over the primary archetype table matching T1, T2, and T3.
+    /// Gets a zero-allocation query matching T1, T2, and T3 across all archetype tables.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Query<T1, T2, T3> Query<T1, T2, T3>()
@@ -314,16 +316,16 @@ public sealed class World : IDisposable
             .With(ComponentType<T1>.Id)
             .With(ComponentType<T2>.Id)
             .With(ComponentType<T3>.Id);
-        var table = FindPrimaryTable(mask);
+        var table = FindPrimaryTable(mask, out int totalCount);
         if (table == null || table.Count == 0)
         {
             return new Query<T1, T2, T3>(Span<T1>.Empty, Span<T2>.Empty, Span<T3>.Empty, ReadOnlySpan<Entity>.Empty);
         }
-        return new Query<T1, T2, T3>(table.GetSpan<T1>(), table.GetSpan<T2>(), table.GetSpan<T3>(), table.GetEntities());
+        return new Query<T1, T2, T3>(table.GetSpan<T1>(), table.GetSpan<T2>(), table.GetSpan<T3>(), table.GetEntities(), CollectionsMarshal.AsSpan(_tableList), mask, totalCount);
     }
 
     /// <summary>
-    /// Gets a zero-allocation query over the primary archetype table matching T1, T2, T3, and T4.
+    /// Gets a zero-allocation query matching T1, T2, T3, and T4 across all archetype tables.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Query<T1, T2, T3, T4> Query<T1, T2, T3, T4>()
@@ -337,12 +339,34 @@ public sealed class World : IDisposable
             .With(ComponentType<T2>.Id)
             .With(ComponentType<T3>.Id)
             .With(ComponentType<T4>.Id);
-        var table = FindPrimaryTable(mask);
+        var table = FindPrimaryTable(mask, out int totalCount);
         if (table == null || table.Count == 0)
         {
             return new Query<T1, T2, T3, T4>(Span<T1>.Empty, Span<T2>.Empty, Span<T3>.Empty, Span<T4>.Empty, ReadOnlySpan<Entity>.Empty);
         }
-        return new Query<T1, T2, T3, T4>(table.GetSpan<T1>(), table.GetSpan<T2>(), table.GetSpan<T3>(), table.GetSpan<T4>(), table.GetEntities());
+        return new Query<T1, T2, T3, T4>(table.GetSpan<T1>(), table.GetSpan<T2>(), table.GetSpan<T3>(), table.GetSpan<T4>(), table.GetEntities(), CollectionsMarshal.AsSpan(_tableList), mask, totalCount);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool TryGetPositionAndBounds(int entityId, out Position2D pos, out AABB2D bounds)
+    {
+        if ((uint)entityId < (uint)_records.Length)
+        {
+            ref readonly EntityRecord rec = ref _records[entityId];
+            var table = rec.Table;
+            if (table != null &&
+                table.Archetype.Mask.Has(ComponentType<Position2D>.Id) &&
+                table.Archetype.Mask.Has(ComponentType<AABB2D>.Id))
+            {
+                pos = table.GetComponent<Position2D>(rec.Row);
+                bounds = table.GetComponent<AABB2D>(rec.Row);
+                return true;
+            }
+        }
+
+        pos = default;
+        bounds = default;
+        return false;
     }
 
     public void AddSystem(ISystem system)
@@ -365,17 +389,22 @@ public sealed class World : IDisposable
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private ArchetypeTable? FindPrimaryTable(in ComponentMask mask)
+    private ArchetypeTable? FindPrimaryTable(in ComponentMask mask, out int totalCount)
     {
         ArchetypeTable? best = null;
         int maxCount = -1;
+        totalCount = 0;
         for (int i = 0; i < _tableList.Count; i++)
         {
             var tbl = _tableList[i];
-            if (tbl.Archetype.Mask.ContainsAll(mask) && tbl.Count > maxCount)
+            if (tbl.Archetype.Mask.ContainsAll(mask))
             {
-                best = tbl;
-                maxCount = tbl.Count;
+                totalCount += tbl.Count;
+                if (tbl.Count > maxCount)
+                {
+                    best = tbl;
+                    maxCount = tbl.Count;
+                }
             }
         }
         return best;
