@@ -11,11 +11,11 @@ using Glacier.Game.Core;
 using Glacier.Game.Ecs;
 using Glacier.Game.Physics;
 using Glacier.Game.Rendering;
-using Glacier.Windowing;
-using Glacier.Windowing.Audio;
-using Glacier.Windowing.Audio.Simulated;
-using Glacier.Windowing.Platform.Headless;
-using Glacier.Windowing.Swapchain.Software;
+using Glacier.Desktop.Audio;
+using Glacier.Desktop.Audio.Simulated;
+using Glacier.Desktop.Windowing;
+using Glacier.Desktop.Windowing.Platform.Headless;
+using Glacier.Desktop.Windowing.Swapchain.Software;
 using Xunit;
 
 /// <summary>

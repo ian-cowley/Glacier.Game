@@ -9,10 +9,10 @@ using Glacier.Game.Collision;
 using Glacier.Game.Ecs;
 using Glacier.Game.Physics;
 using Glacier.Game.Rendering;
-using Glacier.Windowing;
-using Glacier.Windowing.Audio;
-using Glacier.Windowing.Input;
-using Glacier.Windowing.Platform;
+using Glacier.Desktop.Audio;
+using Glacier.Desktop.Windowing;
+using Glacier.Desktop.Windowing.Input;
+using Glacier.Desktop.Windowing.Platform;
 using Position2D = Glacier.Game.Physics.Position2D;
 
 /// <summary>

@@ -2,7 +2,7 @@ namespace Glacier.Game.Audio;
 
 using System;
 using System.Collections.Generic;
-using Glacier.Windowing;
+using Glacier.Desktop.Audio;
 
 /// <summary>
 /// High-performance audio subsystem for Glacier.Game driving sub-3ms WASAPI streaming and hardware output.

@@ -7,8 +7,8 @@ using Glacier.Graphics;
 using Glacier.Graphics.Codecs.Png;
 using Glacier.Graphics.Raster;
 using Glacier.Graphics.Vector;
-using Glacier.Windowing;
-using Glacier.Windowing.Platform;
+using Glacier.Desktop.Windowing;
+using Glacier.Desktop.Windowing.Platform;
 
 /// <summary>
 /// Hardware/software renderer backed by Glacier.Graphics and Glacier.Windowing.
