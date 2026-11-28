@@ -2,13 +2,19 @@ namespace Glacier.Game.Sample;
 
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Numerics;
+using Glacier.Game.Collision;
 using Glacier.Game.Core;
 using Glacier.Game.Ecs;
 using Glacier.Game.Interop;
 using Glacier.Game.Physics;
 using Glacier.Game.Rendering;
+using Glacier.Graphics;
+using Glacier.Graphics.Raster;
+using Glacier.Graphics.Text;
+using Glacier.Graphics.Vector;
 using Position2D = Glacier.Game.Physics.Position2D;
 
 public class Program
@@ -206,7 +212,8 @@ public class Program
             FixedTimeStepHz = 240
         };
 
-        using var engine = new GameEngine(config);
+        using var headlessRenderer = new HeadlessRenderer(config.Width, config.Height);
+        using var engine = new GameEngine(config, headlessRenderer);
         engine.AddSystem(new SimdPhysicsSystem(0f, 1920f, 0f, 1080f));
 
         var rng = new Random(42);
@@ -277,7 +284,7 @@ public class Program
     private static void RenderSimulationSnapshots(string outDir)
     {
         Directory.CreateDirectory(outDir);
-        Console.WriteLine("\n[Rendering High-Resolution Simulation Snapshots via SkiaSharp...]");
+        Console.WriteLine("\n[Rendering High-Resolution Simulation Snapshots via Glacier.Graphics...]");
 
         // Snapshot 1: 25,000 Gravitational Particle Vortex
         {
@@ -285,7 +292,8 @@ public class Program
             const int H = 1080;
             const int count = 25000;
             var config = new WindowConfig { Headless = true, Width = W, Height = H };
-            using var engine = new GameEngine(config);
+            using var headlessRenderer = new HeadlessRenderer(config.Width, config.Height);
+        using var engine = new GameEngine(config, headlessRenderer);
             var physics = new SimdPhysicsSystem(0f, W, 0f, H);
             engine.AddSystem(physics);
 
@@ -316,128 +324,316 @@ public class Program
             for (int f = 0; f < 60; f++)
             {
                 var q = engine.World.Query<Position2D, Velocity2D>();
-                var pSpan = q.Component1Span;
-                var vSpan = q.Component2Span;
                 float dt = 1f / 60f;
-
-                for (int i = 0; i < q.Count; i++)
+                foreach (var chunk in q)
                 {
-                    float dx = cx - pSpan[i].X;
-                    float dy = cy - pSpan[i].Y;
-                    float distSq = dx * dx + dy * dy + 400f;
-                    float force = 250000f / distSq;
-                    float invDist = 1.0f / MathF.Sqrt(distSq);
-                    vSpan[i].X += (dx * invDist) * force * dt;
-                    vSpan[i].Y += (dy * invDist) * force * dt;
+                    var pSpan = chunk.Component1Span;
+                    var vSpan = chunk.Component2Span;
+
+                    for (int i = 0; i < chunk.Count; i++)
+                    {
+                        float dx = cx - pSpan[i].X;
+                        float dy = cy - pSpan[i].Y;
+                        float distSq = dx * dx + dy * dy + 400f;
+                        float force = 250000f / distSq;
+                        float invDist = 1.0f / MathF.Sqrt(distSq);
+                        vSpan[i].X += (dx * invDist) * force * dt;
+                        vSpan[i].Y += (dy * invDist) * force * dt;
+                    }
                 }
 
                 engine.Step(dt);
             }
 
-            // Render to Skia Bitmap
-            using var bmp = new SkiaSharp.SKBitmap(W, H);
-            using var canvas = new SkiaSharp.SKCanvas(bmp);
-            canvas.Clear(new SkiaSharp.SKColor(11, 15, 25));
+            // Render via Glacier.Graphics LinearFramebuffer + CpuGraphicsCanvas
+            using var renderer = new GlacierGraphicsGameRenderer(W, H);
+            var fb = renderer.Framebuffer;
+            var canvas = renderer.Canvas;
+            canvas.Clear(new Rgba32(11, 15, 25));
 
-            using var paint = new SkiaSharp.SKPaint { IsAntialias = true, Style = SkiaSharp.SKPaintStyle.Fill };
             var renderQuery = engine.World.Query<Position2D, Velocity2D>();
-            var pos = renderQuery.Component1Span;
-            var vel = renderQuery.Component2Span;
-
-            for (int i = 0; i < renderQuery.Count; i++)
+            foreach (var chunk in renderQuery)
             {
-                float speed = MathF.Sqrt(vel[i].X * vel[i].X + vel[i].Y * vel[i].Y);
-                float normSpeed = Math.Clamp(speed / 150f, 0f, 1f);
+                var pos = chunk.Component1Span;
+                var vel = chunk.Component2Span;
 
-                byte r = (byte)Math.Clamp((int)(normSpeed * 255f), 30, 255);
-                byte g = (byte)Math.Clamp((int)((1f - MathF.Abs(normSpeed - 0.5f) * 2f) * 220f), 50, 230);
-                byte b = (byte)Math.Clamp((int)((1f - normSpeed) * 255f), 100, 255);
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    float speed = MathF.Sqrt(vel[i].X * vel[i].X + vel[i].Y * vel[i].Y);
+                    float normSpeed = Math.Clamp(speed / 150f, 0f, 1f);
 
-                paint.Color = new SkiaSharp.SKColor(r, g, b, 220);
-                canvas.DrawCircle(pos[i].X, pos[i].Y, 2.5f, paint);
+                    byte r = (byte)Math.Clamp((int)(normSpeed * 255f), 30, 255);
+                    byte g = (byte)Math.Clamp((int)((1f - MathF.Abs(normSpeed - 0.5f) * 2f) * 220f), 50, 230);
+                    byte b = (byte)Math.Clamp((int)((1f - normSpeed) * 255f), 100, 255);
+
+                    DrawFilledCircle(fb, pos[i].X, pos[i].Y, 2.5f, new Rgba32(r, g, b, 220));
+                }
             }
 
-            using var textPaint = new SkiaSharp.SKPaint
-            {
-                Color = SkiaSharp.SKColors.White,
-                TextSize = 24f,
-                IsAntialias = true,
-                Typeface = SkiaSharp.SKTypeface.FromFamilyName("Consolas", SkiaSharp.SKFontStyle.Bold)
-            };
-            canvas.DrawText($"Glacier.Game ECS Engine — 25,000 Orbital Vortex Particles @ 240Hz", 30f, 50f, textPaint);
-            textPaint.TextSize = 16f;
-            textPaint.Color = new SkiaSharp.SKColor(150, 180, 210);
-            canvas.DrawText($"AVX-512 SIMD Integration | Zero-Allocation Archetype SoA | Native HAL & Swapchain", 30f, 80f, textPaint);
+            var titleFont = new Font(24f, "Consolas", bold: true);
+            var subFont = new Font(16f, "Consolas");
+            canvas.DrawText("Glacier.Game ECS Engine — 25,000 Orbital Vortex Particles @ 240Hz", 30f, 50f, titleFont, new Paint(Rgba32.White));
+            canvas.DrawText("AVX-512 SIMD Integration | Zero-Allocation Archetype SoA | Native HAL & Swapchain", 30f, 80f, subFont, new Paint(new Rgba32(150, 180, 210)));
 
-            using var img = SkiaSharp.SKImage.FromBitmap(bmp);
-            using var data = img.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
             string vortexPath = Path.Combine(outDir, "demo_particle_vortex.png");
-            File.WriteAllBytes(vortexPath, data.ToArray());
+            renderer.SavePng(vortexPath);
             Console.WriteLine($"  ✓ Saved particle vortex snapshot -> {vortexPath}");
         }
 
-        // Snapshot 2: Multi-Body Collision Grid (600 bounding entities)
+        // Snapshot 2: Multi-Body Collision Grid (600 bounding entities driven by real CollisionSystem)
         {
             const int W = 1280;
             const int H = 720;
-            using var bmp = new SkiaSharp.SKBitmap(W, H);
-            using var canvas = new SkiaSharp.SKCanvas(bmp);
-            canvas.Clear(new SkiaSharp.SKColor(15, 20, 30));
+            const int entityCount = 600;
+            const float cellSize = 64f;
 
-            using var gridPaint = new SkiaSharp.SKPaint
-            {
-                Color = new SkiaSharp.SKColor(30, 42, 60),
-                StrokeWidth = 1f,
-                Style = SkiaSharp.SKPaintStyle.Stroke
-            };
-
-            const int cellSize = 64;
-            for (int x = 0; x <= W; x += cellSize) canvas.DrawLine(x, 0, x, H, gridPaint);
-            for (int y = 0; y <= H; y += cellSize) canvas.DrawLine(0, y, W, y, gridPaint);
-
-            using var entityPaint = new SkiaSharp.SKPaint { IsAntialias = true, Style = SkiaSharp.SKPaintStyle.Fill };
-            using var strokePaint = new SkiaSharp.SKPaint { IsAntialias = true, Style = SkiaSharp.SKPaintStyle.Stroke, StrokeWidth = 1.5f };
+            var config = new WindowConfig { Headless = true, Width = W, Height = H };
+            using var headlessRenderer = new HeadlessRenderer(config.Width, config.Height);
+        using var engine = new GameEngine(config, headlessRenderer);
+            using var collision = new CollisionSystem(cellSize: cellSize);
+            var physics = new SimdPhysicsSystem(40f, W - 40f, 40f, H - 40f);
+            engine.AddSystem(physics);
+            engine.AddSystem(collision);
 
             var rng = new Random(1337);
-            for (int i = 0; i < 600; i++)
+            for (int i = 0; i < entityCount; i++)
             {
                 float x = (float)(rng.NextDouble() * (W - 80) + 40);
                 float y = (float)(rng.NextDouble() * (H - 80) + 40);
-                float size = (float)(rng.NextDouble() * 12 + 6);
-                bool colliding = rng.NextDouble() < 0.15;
+                float halfSize = (float)(rng.NextDouble() * 12 + 6); // max width 36 < 64px cellSize
+                float vx = (float)(rng.NextDouble() * 160 - 80);
+                float vy = (float)(rng.NextDouble() * 160 - 80);
 
-                if (colliding)
+                engine.World.CreateEntity(
+                    new Position2D(x, y),
+                    new Velocity2D(vx, vy),
+                    new AABB2D(-halfSize, -halfSize, halfSize, halfSize)
+                );
+            }
+
+            for (int f = 0; f < 10; f++)
+            {
+                engine.Step(1f / 60f);
+            }
+
+            // Reconcile per-entity collision state directly from CollisionSystem.Grid
+            var query = engine.World.Query<Position2D, AABB2D>();
+            int maxId = 0;
+            foreach (var chunk in query)
+            {
+                var entities = chunk.Entities;
+                for (int i = 0; i < chunk.Count; i++)
                 {
-                    entityPaint.Color = new SkiaSharp.SKColor(255, 60, 80, 200);
-                    strokePaint.Color = new SkiaSharp.SKColor(255, 120, 140, 255);
+                    if (entities[i].Id > maxId) maxId = entities[i].Id;
+                }
+            }
+
+            var posById = new Position2D[maxId + 1];
+            var boxById = new AABB2D[maxId + 1];
+            var active = new bool[maxId + 1];
+            var isColliding = new bool[maxId + 1];
+
+            foreach (var chunk in query)
+            {
+                var positions = chunk.Component1Span;
+                var boxes = chunk.Component2Span;
+                var entities = chunk.Entities;
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    int id = entities[i].Id;
+                    posById[id] = positions[i];
+                    boxById[id] = boxes[i];
+                    active[id] = true;
+                }
+            }
+
+            int verifiedPairs = 0;
+            Span<int> neighbors = stackalloc int[256];
+            for (int idA = 0; idA <= maxId; idA++)
+            {
+                if (!active[idA]) continue;
+                ref readonly Position2D posA = ref posById[idA];
+                ref readonly AABB2D boxA = ref boxById[idA];
+                float cxA = posA.X + (boxA.MinX + boxA.MaxX) * 0.5f;
+                float cyA = posA.Y + (boxA.MinY + boxA.MaxY) * 0.5f;
+
+                int nCount = collision.Grid.QueryNeighbors(cxA, cyA, neighbors);
+                if (nCount <= 1) continue;
+
+                float minXA = posA.X + boxA.MinX;
+                float maxXA = posA.X + boxA.MaxX;
+                float minYA = posA.Y + boxA.MinY;
+                float maxYA = posA.Y + boxA.MaxY;
+
+                for (int n = 0; n < nCount; n++)
+                {
+                    int idB = neighbors[n];
+                    if (idB <= idA || idB > maxId || !active[idB]) continue;
+
+                    ref readonly Position2D posB = ref posById[idB];
+                    ref readonly AABB2D boxB = ref boxById[idB];
+                    float minXB = posB.X + boxB.MinX;
+                    float maxXB = posB.X + boxB.MaxX;
+                    float minYB = posB.Y + boxB.MinY;
+                    float maxYB = posB.Y + boxB.MaxY;
+
+                    if (minXA <= maxXB && maxXA >= minXB && minYA <= maxYB && maxYA >= minYB)
+                    {
+                        isColliding[idA] = true;
+                        isColliding[idB] = true;
+                        verifiedPairs++;
+                    }
+                }
+            }
+
+            int collidingEntityCount = 0;
+            for (int id = 0; id <= maxId; id++)
+            {
+                if (active[id] && isColliding[id]) collidingEntityCount++;
+            }
+
+            using var renderer = new GlacierGraphicsGameRenderer(W, H);
+            var fb = renderer.Framebuffer;
+            var canvas = renderer.Canvas;
+            canvas.Clear(new Rgba32(15, 20, 30));
+
+            var gridPath = new VectorPath();
+            const int gridStep = (int)cellSize;
+            for (int gx = 0; gx <= W; gx += gridStep)
+            {
+                gridPath.MoveTo(gx, 0f);
+                gridPath.LineTo(gx, H);
+            }
+            for (int gy = 0; gy <= H; gy += gridStep)
+            {
+                gridPath.MoveTo(0f, gy);
+                gridPath.LineTo(W, gy);
+            }
+            canvas.DrawPath(gridPath, new Paint(new Rgba32(30, 42, 60), PaintStyle.Stroke, 1f));
+
+            var collidingFill = new Rgba32(255, 60, 80, 200);
+            var collidingStroke = new Rgba32(255, 120, 140, 255);
+            var freeFill = new Rgba32(0, 200, 160, 180);
+            var freeStroke = new Rgba32(50, 255, 210, 255);
+
+            for (int id = 0; id <= maxId; id++)
+            {
+                if (!active[id]) continue;
+                ref readonly Position2D pos = ref posById[id];
+                ref readonly AABB2D box = ref boxById[id];
+                float rx = pos.X + box.MinX;
+                float ry = pos.Y + box.MinY;
+                float rw = box.Width;
+                float rh = box.Height;
+
+                if (isColliding[id])
+                {
+                    DrawRoundedRect(fb, rx, ry, rw, rh, 4f, 1.5f, collidingFill, collidingStroke);
                 }
                 else
                 {
-                    entityPaint.Color = new SkiaSharp.SKColor(0, 200, 160, 180);
-                    strokePaint.Color = new SkiaSharp.SKColor(50, 255, 210, 255);
+                    DrawRoundedRect(fb, rx, ry, rw, rh, 4f, 1.5f, freeFill, freeStroke);
                 }
-
-                canvas.DrawRoundRect(x - size, y - size, size * 2, size * 2, 4f, 4f, entityPaint);
-                canvas.DrawRoundRect(x - size, y - size, size * 2, size * 2, 4f, 4f, strokePaint);
             }
 
-            using var textPaint = new SkiaSharp.SKPaint
-            {
-                Color = SkiaSharp.SKColors.White,
-                TextSize = 22f,
-                IsAntialias = true,
-                Typeface = SkiaSharp.SKTypeface.FromFamilyName("Consolas", SkiaSharp.SKFontStyle.Bold)
-            };
-            canvas.DrawText("Glacier.Game Spatial Hash Partitioning & Elastic Collision System", 25f, 40f, textPaint);
-            textPaint.TextSize = 15f;
-            textPaint.Color = new SkiaSharp.SKColor(140, 170, 200);
-            canvas.DrawText("AVX-512 Bounding Box Intersections | Zero Heap Allocations | 64px Grid Cells", 25f, 65f, textPaint);
+            var titleFont = new Font(22f, "Consolas", bold: true);
+            var subFont = new Font(15f, "Consolas");
+            canvas.DrawText("Glacier.Game Spatial Hash Partitioning & Elastic Collision System", 25f, 40f, titleFont, new Paint(Rgba32.White));
+            canvas.DrawText($"{collision.CollisionCount} Active Collisions ({collidingEntityCount} Entities, verifiedPairs={verifiedPairs}) | 64px Spatial Hash Grid", 25f, 65f, subFont, new Paint(new Rgba32(140, 170, 200)));
 
-            using var img = SkiaSharp.SKImage.FromBitmap(bmp);
-            using var data = img.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
             string colPath = Path.Combine(outDir, "demo_spatial_collision.png");
-            File.WriteAllBytes(colPath, data.ToArray());
-            Console.WriteLine($"  ✓ Saved spatial collision snapshot -> {colPath}");
+            renderer.SavePng(colPath);
+            Console.WriteLine($"  ✓ Saved spatial collision snapshot -> {colPath} (CollisionCount={collision.CollisionCount}, verifiedPairs={verifiedPairs}, collidingEntities={collidingEntityCount})");
         }
+    }
+
+    private static void DrawFilledCircle(LinearFramebuffer fb, float cx, float cy, float radius, Rgba32 color)
+    {
+        int minX = Math.Max(0, (int)MathF.Floor(cx - radius - 1f));
+        int maxX = Math.Min(fb.Width - 1, (int)MathF.Ceiling(cx + radius + 1f));
+        int minY = Math.Max(0, (int)MathF.Floor(cy - radius - 1f));
+        int maxY = Math.Min(fb.Height - 1, (int)MathF.Ceiling(cy + radius + 1f));
+
+        for (int py = minY; py <= maxY; py++)
+        {
+            var row = fb.GetRowSpan(py);
+            float dy = (py + 0.5f) - cy;
+            for (int px = minX; px <= maxX; px++)
+            {
+                float dx = (px + 0.5f) - cx;
+                float dist = MathF.Sqrt(dx * dx + dy * dy);
+                float coverage = Math.Clamp(radius + 0.5f - dist, 0f, 1f);
+                if (coverage > 0f)
+                {
+                    BlendPixel(ref row[px], color, coverage);
+                }
+            }
+        }
+    }
+
+    private static void DrawRoundedRect(
+        LinearFramebuffer fb,
+        float x,
+        float y,
+        float w,
+        float h,
+        float radius,
+        float strokeWidth,
+        Rgba32 fill,
+        Rgba32 stroke)
+    {
+        float halfW = w * 0.5f;
+        float halfH = h * 0.5f;
+        float r = MathF.Min(radius, MathF.Min(halfW, halfH));
+        float cx = x + halfW;
+        float cy = y + halfH;
+        float innerHalfW = MathF.Max(0f, halfW - r);
+        float innerHalfH = MathF.Max(0f, halfH - r);
+
+        int minX = Math.Max(0, (int)MathF.Floor(x - strokeWidth - 1f));
+        int maxX = Math.Min(fb.Width - 1, (int)MathF.Ceiling(x + w + strokeWidth + 1f));
+        int minY = Math.Max(0, (int)MathF.Floor(y - strokeWidth - 1f));
+        int maxY = Math.Min(fb.Height - 1, (int)MathF.Ceiling(y + h + strokeWidth + 1f));
+
+        float halfStroke = strokeWidth * 0.5f;
+
+        for (int py = minY; py <= maxY; py++)
+        {
+            var row = fb.GetRowSpan(py);
+            float qy = MathF.Abs((py + 0.5f) - cy) - innerHalfH;
+            for (int px = minX; px <= maxX; px++)
+            {
+                float qx = MathF.Abs((px + 0.5f) - cx) - innerHalfW;
+                float outX = MathF.Max(qx, 0f);
+                float outY = MathF.Max(qy, 0f);
+                float signedDist = MathF.Sqrt(outX * outX + outY * outY) + MathF.Min(MathF.Max(qx, qy), 0f) - r;
+
+                float fillCov = Math.Clamp(0.5f - signedDist, 0f, 1f);
+                if (fillCov > 0f)
+                {
+                    BlendPixel(ref row[px], fill, fillCov);
+                }
+
+                float strokeCov = Math.Clamp(halfStroke + 0.5f - MathF.Abs(signedDist), 0f, 1f);
+                if (strokeCov > 0f)
+                {
+                    BlendPixel(ref row[px], stroke, strokeCov);
+                }
+            }
+        }
+    }
+
+    private static void BlendPixel(ref Rgba32 dst, Rgba32 src, float coverage)
+    {
+        float srcA = (src.A / 255.0f) * coverage;
+        if (srcA <= 0f) return;
+
+        float invA = 1.0f - srcA;
+        byte outR = (byte)Math.Clamp((int)MathF.Round(src.R * srcA + dst.R * invA), 0, 255);
+        byte outG = (byte)Math.Clamp((int)MathF.Round(src.G * srcA + dst.G * invA), 0, 255);
+        byte outB = (byte)Math.Clamp((int)MathF.Round(src.B * srcA + dst.B * invA), 0, 255);
+        byte outA = (byte)Math.Clamp((int)MathF.Round(src.A * srcA + dst.A * invA), 0, 255);
+
+        dst = new Rgba32(outR, outG, outB, outA);
     }
 }

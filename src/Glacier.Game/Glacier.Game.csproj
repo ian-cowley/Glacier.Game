@@ -31,18 +31,20 @@
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('..\..\..\Glacier.Desktop\src\Glacier.Desktop\Glacier.Desktop.csproj') and '$(UseLocalProjectReferences)' != 'false'">
-    <ProjectReference Include="..\..\..\Glacier.Desktop\src\Glacier.Desktop\Glacier.Desktop.csproj" />
-    <ProjectReference Include="..\..\..\Glacier.Graphics\src\Glacier.Graphics\Glacier.Graphics.csproj" />
-    <ProjectReference Include="..\..\..\Glacier.Polaris\src\Glacier.Polaris\Glacier.Polaris.csproj" />
-    <ProjectReference Include="..\..\..\Glacier.Tensor\src\Glacier.Tensor\Glacier.Tensor.csproj" />
-    <ProjectReference Include="..\..\..\Glacier.Gpu\src\Glacier.Gpu\Glacier.Gpu.csproj" />
-  </ItemGroup>
-  <ItemGroup Condition="!Exists('..\..\..\Glacier.Desktop\src\Glacier.Desktop\Glacier.Desktop.csproj') or '$(UseLocalProjectReferences)' == 'false'">
-    <PackageReference Include="Glacier.Desktop" Version="1.2.1" />
-    <PackageReference Include="Glacier.Graphics" Version="1.2.1" />
-    <PackageReference Include="Glacier.Polaris" Version="1.2.6" />
-    <PackageReference Include="Glacier.Tensor" Version="1.1.2" />
-    <PackageReference Include="Glacier.Gpu" Version="1.2.1" />
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Glacier.Desktop\src\Glacier.Desktop\Glacier.Desktop.csproj" Condition="Exists('..\..\..\Glacier.Desktop\src\Glacier.Desktop\Glacier.Desktop.csproj') and '$(UseLocalProjectReferences)' != 'false'" />
+    <PackageReference Include="Glacier.Desktop" Condition="!Exists('..\..\..\Glacier.Desktop\src\Glacier.Desktop\Glacier.Desktop.csproj') or '$(UseLocalProjectReferences)' == 'false'" />
+
+    <ProjectReference Include="..\..\..\Glacier.Graphics\src\Glacier.Graphics\Glacier.Graphics.csproj" Condition="Exists('..\..\..\Glacier.Graphics\src\Glacier.Graphics\Glacier.Graphics.csproj') and '$(UseLocalProjectReferences)' != 'false'" />
+    <PackageReference Include="Glacier.Graphics" Condition="!Exists('..\..\..\Glacier.Graphics\src\Glacier.Graphics\Glacier.Graphics.csproj') or '$(UseLocalProjectReferences)' == 'false'" />
+
+    <ProjectReference Include="..\..\..\Glacier.Polaris\src\Glacier.Polaris\Glacier.Polaris.csproj" Condition="Exists('..\..\..\Glacier.Polaris\src\Glacier.Polaris\Glacier.Polaris.csproj') and '$(UseLocalProjectReferences)' != 'false'" />
+    <PackageReference Include="Glacier.Polaris" Condition="!Exists('..\..\..\Glacier.Polaris\src\Glacier.Polaris\Glacier.Polaris.csproj') or '$(UseLocalProjectReferences)' == 'false'" />
+
+    <ProjectReference Include="..\..\..\Glacier.Tensor\src\Glacier.Tensor\Glacier.Tensor.csproj" Condition="Exists('..\..\..\Glacier.Tensor\src\Glacier.Tensor\Glacier.Tensor.csproj') and '$(UseLocalProjectReferences)' != 'false'" />
+    <PackageReference Include="Glacier.Tensor" Condition="!Exists('..\..\..\Glacier.Tensor\src\Glacier.Tensor\Glacier.Tensor.csproj') or '$(UseLocalProjectReferences)' == 'false'" />
+
+    <ProjectReference Include="..\..\..\Glacier.Gpu\src\Glacier.Gpu\Glacier.Gpu.csproj" Condition="Exists('..\..\..\Glacier.Gpu\src\Glacier.Gpu\Glacier.Gpu.csproj') and '$(UseLocalProjectReferences)' != 'false'" />
+    <PackageReference Include="Glacier.Gpu" Condition="!Exists('..\..\..\Glacier.Gpu\src\Glacier.Gpu\Glacier.Gpu.csproj') or '$(UseLocalProjectReferences)' == 'false'" />
   </ItemGroup>
 </Project>
