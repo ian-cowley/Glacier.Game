@@ -161,6 +161,19 @@ public sealed class GameHardeningTests
         Assert.All(mockDevice.PlayedBatches[1], s => Assert.Equal(0.5f, s, 4));
     }
 
+    [Fact]
+    public void ArchetypeTable_PostDispose_ThrowsObjectDisposedException()
+    {
+        var archetype = new Archetype(0, ComponentMask.Empty.With(ComponentType<Position2D>.Id));
+        var table = new ArchetypeTable(archetype, 16);
+        table.AddEntity(new Entity(0, 0));
+        table.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => table.AddEntity(new Entity(1, 0)));
+        Assert.Throws<ObjectDisposedException>(() => table.GetSpan<Position2D>());
+        Assert.Throws<ObjectDisposedException>(() => table.GetEntities());
+    }
+
     private sealed class CapturingAudioDevice : IAudioDevice
     {
         public int SampleRate => 100;

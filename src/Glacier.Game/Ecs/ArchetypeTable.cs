@@ -55,6 +55,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int AddEntity(Entity entity)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureCapacity(Count + 1);
         int index = Count++;
         _entities[index] = entity;
@@ -68,6 +69,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Entity RemoveAt(int row)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if ((uint)row >= (uint)Count)
             throw new ArgumentOutOfRangeException(nameof(row));
 
@@ -100,6 +102,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ref T GetComponent<T>(int row) where T : unmanaged
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         int typeId = ComponentType<T>.Id;
         int col = GetColumnIndex(typeId);
         EnsureColumnAllocated<T>(col);
@@ -109,6 +112,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void SetComponent<T>(int row, in T value) where T : unmanaged
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         int typeId = ComponentType<T>.Id;
         int col = GetColumnIndex(typeId);
         EnsureColumnAllocated<T>(col);
@@ -118,6 +122,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Span<T> GetSpan<T>() where T : unmanaged
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         int typeId = ComponentType<T>.Id;
         int col = GetColumnIndex(typeId);
         EnsureColumnAllocated<T>(col);
@@ -127,12 +132,16 @@ public sealed unsafe class ArchetypeTable : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ReadOnlySpan<Entity> GetEntities()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         return new ReadOnlySpan<Entity>(_entities, Count);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void CopyComponentTo(int srcRow, ArchetypeTable dstTable, int dstRow, int typeId)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(dstTable);
+        ObjectDisposedException.ThrowIf(dstTable._disposed, dstTable);
         int srcCol = GetColumnIndex(typeId);
         int dstCol = dstTable.GetColumnIndex(typeId);
         int size = _columnSizes[srcCol];
@@ -185,6 +194,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsColumnAligned<T>(nuint alignment = 64) where T : unmanaged
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         int typeId = ComponentType<T>.Id;
         int col = GetColumnIndex(typeId);
         EnsureColumnAllocated<T>(col);
@@ -197,6 +207,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsEntitiesAligned(nuint alignment = 64)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         return ((nuint)_entities & (alignment - 1)) == 0;
     }
 
