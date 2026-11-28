@@ -1,6 +1,7 @@
 namespace Glacier.Game.Audio;
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using Glacier.Desktop.Audio;
 
@@ -49,21 +50,50 @@ public sealed class AudioManager : IDisposable
     /// <summary>
     /// Plays an audio clip directly through the low-latency hardware device.
     /// </summary>
-    public void PlayClip(AudioClip clip)
+    public void PlayClip(AudioClip clip) => PlayClip(clip, 1.0f);
+
+    /// <summary>
+    /// Plays an audio clip directly through the hardware device scaled by the specified clip volume [0, 1].
+    /// </summary>
+    public void PlayClip(AudioClip clip, float volume)
     {
         ArgumentNullException.ThrowIfNull(clip);
-        _device.Play(clip.Samples);
+        float vol = Math.Clamp(volume, 0f, 1f);
+        if (vol <= 0f) return;
+
+        ReadOnlySpan<float> samples = clip.Samples;
+        if (samples.IsEmpty) return;
+
+        if (vol >= 0.9999f)
+        {
+            _device.Play(samples);
+            return;
+        }
+
+        float[] rented = ArrayPool<float>.Shared.Rent(samples.Length);
+        try
+        {
+            Span<float> scaled = rented.AsSpan(0, samples.Length);
+            for (int i = 0; i < samples.Length; i++)
+                scaled[i] = samples[i] * vol;
+
+            _device.Play(scaled);
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(rented);
+        }
     }
 
     /// <summary>
     /// Plays a registered audio clip by ID through the hardware device.
     /// </summary>
-    public void PlayClip(int clipId)
+    public void PlayClip(int clipId, float volume = 1.0f)
     {
         var clip = GetClip(clipId);
         if (clip != null)
         {
-            PlayClip(clip);
+            PlayClip(clip, volume);
         }
     }
 

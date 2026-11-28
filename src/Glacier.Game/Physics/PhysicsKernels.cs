@@ -230,6 +230,51 @@ public static unsafe class PhysicsKernels
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static void ApplyGravityY(Span<Velocity2D> velocities, float gravityY, float dt)
+    {
+        int count = velocities.Length;
+        if (count == 0) return;
+
+        float delta = gravityY * dt;
+        fixed (Velocity2D* pVel = velocities)
+        {
+            float* pF = (float*)pVel;
+            int floatCount = count * 2;
+            int i = 0;
+
+            if (Avx512F.IsSupported && floatCount >= 16)
+            {
+                var vAdd = Vector512.Create(0f, delta, 0f, delta, 0f, delta, 0f, delta, 0f, delta, 0f, delta, 0f, delta, 0f, delta);
+                for (; i <= floatCount - 16; i += 16)
+                {
+                    Vector512.Store(Vector512.Add(Vector512.Load(pF + i), vAdd), pF + i);
+                }
+            }
+            else if (Avx2.IsSupported && floatCount >= 8)
+            {
+                var vAdd = Vector256.Create(0f, delta, 0f, delta, 0f, delta, 0f, delta);
+                for (; i <= floatCount - 8; i += 8)
+                {
+                    Vector256.Store(Vector256.Add(Vector256.Load(pF + i), vAdd), pF + i);
+                }
+            }
+            else if (AdvSimd.IsSupported && floatCount >= 4)
+            {
+                var vAdd = Vector128.Create(0f, delta, 0f, delta);
+                for (; i <= floatCount - 4; i += 4)
+                {
+                    AdvSimd.Store(pF + i, Vector128.Add(AdvSimd.LoadVector128(pF + i), vAdd));
+                }
+            }
+
+            for (; i < floatCount; i += 2)
+            {
+                pF[i + 1] += delta;
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void ApplyDamping(Span<float> velX, Span<float> velY, float drag, float dt)
     {
         int count = velX.Length;
@@ -280,6 +325,7 @@ public static unsafe class PhysicsKernels
 
     /// <summary>
     /// Clamps entity positions within [minX, maxX, minY, maxY] and reflects velocities on impact.
+    /// Vectorized across AVX-512, AVX2, and ARM64 AdvSimd.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void ClampAndBounce(
@@ -292,7 +338,83 @@ public static unsafe class PhysicsKernels
         int count = posX.Length;
         fixed (float* pX = posX, pY = posY, pVx = velX, pVy = velY)
         {
-            for (int i = 0; i < count; i++)
+            int i = 0;
+            float negRest = -restitution;
+
+            if (Avx512F.IsSupported && count >= 16)
+            {
+                var vMinX = Vector512.Create(minX);
+                var vMaxX = Vector512.Create(maxX);
+                var vMinY = Vector512.Create(minY);
+                var vMaxY = Vector512.Create(maxY);
+                var vNegRest = Vector512.Create(negRest);
+
+                for (; i <= count - 16; i += 16)
+                {
+                    var x = Vector512.Load(pX + i);
+                    var y = Vector512.Load(pY + i);
+                    var vx = Vector512.Load(pVx + i);
+                    var vy = Vector512.Load(pVy + i);
+
+                    var hitX = Vector512.BitwiseOr(Vector512.LessThan(x, vMinX), Vector512.GreaterThan(x, vMaxX));
+                    var hitY = Vector512.BitwiseOr(Vector512.LessThan(y, vMinY), Vector512.GreaterThan(y, vMaxY));
+
+                    Vector512.Store(Vector512.Min(Vector512.Max(x, vMinX), vMaxX), pX + i);
+                    Vector512.Store(Vector512.Min(Vector512.Max(y, vMinY), vMaxY), pY + i);
+                    Vector512.Store(Vector512.ConditionalSelect(hitX, Vector512.Multiply(vx, vNegRest), vx), pVx + i);
+                    Vector512.Store(Vector512.ConditionalSelect(hitY, Vector512.Multiply(vy, vNegRest), vy), pVy + i);
+                }
+            }
+            else if (Avx2.IsSupported && count >= 8)
+            {
+                var vMinX = Vector256.Create(minX);
+                var vMaxX = Vector256.Create(maxX);
+                var vMinY = Vector256.Create(minY);
+                var vMaxY = Vector256.Create(maxY);
+                var vNegRest = Vector256.Create(negRest);
+
+                for (; i <= count - 8; i += 8)
+                {
+                    var x = Vector256.Load(pX + i);
+                    var y = Vector256.Load(pY + i);
+                    var vx = Vector256.Load(pVx + i);
+                    var vy = Vector256.Load(pVy + i);
+
+                    var hitX = Vector256.BitwiseOr(Vector256.LessThan(x, vMinX), Vector256.GreaterThan(x, vMaxX));
+                    var hitY = Vector256.BitwiseOr(Vector256.LessThan(y, vMinY), Vector256.GreaterThan(y, vMaxY));
+
+                    Vector256.Store(Vector256.Min(Vector256.Max(x, vMinX), vMaxX), pX + i);
+                    Vector256.Store(Vector256.Min(Vector256.Max(y, vMinY), vMaxY), pY + i);
+                    Vector256.Store(Vector256.ConditionalSelect(hitX, Vector256.Multiply(vx, vNegRest), vx), pVx + i);
+                    Vector256.Store(Vector256.ConditionalSelect(hitY, Vector256.Multiply(vy, vNegRest), vy), pVy + i);
+                }
+            }
+            else if (AdvSimd.IsSupported && count >= 4)
+            {
+                var vMinX = Vector128.Create(minX);
+                var vMaxX = Vector128.Create(maxX);
+                var vMinY = Vector128.Create(minY);
+                var vMaxY = Vector128.Create(maxY);
+                var vNegRest = Vector128.Create(negRest);
+
+                for (; i <= count - 4; i += 4)
+                {
+                    var x = AdvSimd.LoadVector128(pX + i);
+                    var y = AdvSimd.LoadVector128(pY + i);
+                    var vx = AdvSimd.LoadVector128(pVx + i);
+                    var vy = AdvSimd.LoadVector128(pVy + i);
+
+                    var hitX = Vector128.BitwiseOr(Vector128.LessThan(x, vMinX), Vector128.GreaterThan(x, vMaxX));
+                    var hitY = Vector128.BitwiseOr(Vector128.LessThan(y, vMinY), Vector128.GreaterThan(y, vMaxY));
+
+                    AdvSimd.Store(pX + i, Vector128.Min(Vector128.Max(x, vMinX), vMaxX));
+                    AdvSimd.Store(pY + i, Vector128.Min(Vector128.Max(y, vMinY), vMaxY));
+                    AdvSimd.Store(pVx + i, Vector128.ConditionalSelect(hitX, Vector128.Multiply(vx, vNegRest), vx));
+                    AdvSimd.Store(pVy + i, Vector128.ConditionalSelect(hitY, Vector128.Multiply(vy, vNegRest), vy));
+                }
+            }
+
+            for (; i < count; i++)
             {
                 if (pX[i] < minX)
                 {
@@ -334,28 +456,80 @@ public static unsafe class PhysicsKernels
         fixed (Position2D* pPos = positions)
         fixed (Velocity2D* pVel = velocities)
         {
-            for (int i = 0; i < count; i++)
+            float* pPF = (float*)pPos;
+            float* pVF = (float*)pVel;
+            int floatCount = count * 2;
+            int i = 0;
+            float negRest = -restitution;
+
+            if (Avx512F.IsSupported && floatCount >= 16)
             {
-                if (pPos[i].X < minX)
+                var vMin = Vector512.Create(minX, minY, minX, minY, minX, minY, minX, minY, minX, minY, minX, minY, minX, minY, minX, minY);
+                var vMax = Vector512.Create(maxX, maxY, maxX, maxY, maxX, maxY, maxX, maxY, maxX, maxY, maxX, maxY, maxX, maxY, maxX, maxY);
+                var vNegRest = Vector512.Create(negRest);
+
+                for (; i <= floatCount - 16; i += 16)
                 {
-                    pPos[i].X = minX;
-                    pVel[i].X = -pVel[i].X * restitution;
+                    var p = Vector512.Load(pPF + i);
+                    var v = Vector512.Load(pVF + i);
+                    var hit = Vector512.BitwiseOr(Vector512.LessThan(p, vMin), Vector512.GreaterThan(p, vMax));
+                    Vector512.Store(Vector512.Min(Vector512.Max(p, vMin), vMax), pPF + i);
+                    Vector512.Store(Vector512.ConditionalSelect(hit, Vector512.Multiply(v, vNegRest), v), pVF + i);
                 }
-                else if (pPos[i].X > maxX)
+            }
+            else if (Avx2.IsSupported && floatCount >= 8)
+            {
+                var vMin = Vector256.Create(minX, minY, minX, minY, minX, minY, minX, minY);
+                var vMax = Vector256.Create(maxX, maxY, maxX, maxY, maxX, maxY, maxX, maxY);
+                var vNegRest = Vector256.Create(negRest);
+
+                for (; i <= floatCount - 8; i += 8)
                 {
-                    pPos[i].X = maxX;
-                    pVel[i].X = -pVel[i].X * restitution;
+                    var p = Vector256.Load(pPF + i);
+                    var v = Vector256.Load(pVF + i);
+                    var hit = Vector256.BitwiseOr(Vector256.LessThan(p, vMin), Vector256.GreaterThan(p, vMax));
+                    Vector256.Store(Vector256.Min(Vector256.Max(p, vMin), vMax), pPF + i);
+                    Vector256.Store(Vector256.ConditionalSelect(hit, Vector256.Multiply(v, vNegRest), v), pVF + i);
+                }
+            }
+            else if (AdvSimd.IsSupported && floatCount >= 4)
+            {
+                var vMin = Vector128.Create(minX, minY, minX, minY);
+                var vMax = Vector128.Create(maxX, maxY, maxX, maxY);
+                var vNegRest = Vector128.Create(negRest);
+
+                for (; i <= floatCount - 4; i += 4)
+                {
+                    var p = AdvSimd.LoadVector128(pPF + i);
+                    var v = AdvSimd.LoadVector128(pVF + i);
+                    var hit = Vector128.BitwiseOr(Vector128.LessThan(p, vMin), Vector128.GreaterThan(p, vMax));
+                    AdvSimd.Store(pPF + i, Vector128.Min(Vector128.Max(p, vMin), vMax));
+                    AdvSimd.Store(pVF + i, Vector128.ConditionalSelect(hit, Vector128.Multiply(v, vNegRest), v));
+                }
+            }
+
+            for (; i < floatCount; i += 2)
+            {
+                if (pPF[i] < minX)
+                {
+                    pPF[i] = minX;
+                    pVF[i] = -pVF[i] * restitution;
+                }
+                else if (pPF[i] > maxX)
+                {
+                    pPF[i] = maxX;
+                    pVF[i] = -pVF[i] * restitution;
                 }
 
-                if (pPos[i].Y < minY)
+                if (pPF[i + 1] < minY)
                 {
-                    pPos[i].Y = minY;
-                    pVel[i].Y = -pVel[i].Y * restitution;
+                    pPF[i + 1] = minY;
+                    pVF[i + 1] = -pVF[i + 1] * restitution;
                 }
-                else if (pPos[i].Y > maxY)
+                else if (pPF[i + 1] > maxY)
                 {
-                    pPos[i].Y = maxY;
-                    pVel[i].Y = -pVel[i].Y * restitution;
+                    pPF[i + 1] = maxY;
+                    pVF[i + 1] = -pVF[i + 1] * restitution;
                 }
             }
         }
@@ -365,13 +539,37 @@ public static unsafe class PhysicsKernels
     public static void ApplyDamping(Span<Velocity2D> velocities, float drag, float dt)
     {
         int count = velocities.Length;
+        if (count == 0) return;
+
         float factor = Math.Clamp(1.0f - (drag * dt), 0.0f, 1.0f);
         fixed (Velocity2D* pVel = velocities)
         {
-            for (int i = 0; i < count; i++)
+            float* pF = (float*)pVel;
+            int floatCount = count * 2;
+            int i = 0;
+
+            if (Avx512F.IsSupported && floatCount >= 16)
             {
-                pVel[i].X *= factor;
-                pVel[i].Y *= factor;
+                var vFac = Vector512.Create(factor);
+                for (; i <= floatCount - 16; i += 16)
+                    Vector512.Store(Vector512.Multiply(Vector512.Load(pF + i), vFac), pF + i);
+            }
+            else if (Avx2.IsSupported && floatCount >= 8)
+            {
+                var vFac = Vector256.Create(factor);
+                for (; i <= floatCount - 8; i += 8)
+                    Vector256.Store(Vector256.Multiply(Vector256.Load(pF + i), vFac), pF + i);
+            }
+            else if (AdvSimd.IsSupported && floatCount >= 4)
+            {
+                var vFac = Vector128.Create(factor);
+                for (; i <= floatCount - 4; i += 4)
+                    AdvSimd.Store(pF + i, Vector128.Multiply(AdvSimd.LoadVector128(pF + i), vFac));
+            }
+
+            for (; i < floatCount; i++)
+            {
+                pF[i] *= factor;
             }
         }
     }

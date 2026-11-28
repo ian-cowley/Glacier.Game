@@ -16,7 +16,7 @@ public sealed class SimdPhysicsSystem : ISystem
 
     public float Restitution { get; set; } = 0.95f;
     public float GravityY { get; set; } = 0f;
-    public float Drag { get; set; } = 0.001f;
+    public float Drag { get; set; } = 0f;
 
     public SimdPhysicsSystem() { }
 
@@ -35,19 +35,14 @@ public sealed class SimdPhysicsSystem : ISystem
         var query = world.Query<Position2D, Velocity2D>();
         if (query.TotalCount == 0) return;
 
-        float gravityStep = GravityY * deltaTime;
-
         foreach (var chunk in query)
         {
             var posSpan = chunk.Component1Span;
             var velSpan = chunk.Component2Span;
 
-            if (gravityStep != 0f)
+            if (GravityY != 0f)
             {
-                for (int i = 0; i < velSpan.Length; i++)
-                {
-                    velSpan[i].Y += gravityStep;
-                }
+                PhysicsKernels.ApplyGravityY(velSpan, GravityY, deltaTime);
             }
 
             // 1. SIMD Euler Integration
@@ -55,6 +50,12 @@ public sealed class SimdPhysicsSystem : ISystem
 
             // 2. SIMD Boundary Clamping & Bounce Reflection
             PhysicsKernels.ClampAndBounce(posSpan, velSpan, BoundsMinX, BoundsMaxX, BoundsMinY, BoundsMaxY, Restitution);
+
+            // 3. SIMD Velocity Damping
+            if (Drag > 0f)
+            {
+                PhysicsKernels.ApplyDamping(velSpan, Drag, deltaTime);
+            }
         }
     }
 }

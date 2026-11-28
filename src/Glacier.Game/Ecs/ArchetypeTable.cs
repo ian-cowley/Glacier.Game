@@ -39,9 +39,10 @@ public sealed unsafe class ArchetypeTable : IDisposable
         Array.Fill(_typeIdToColumnIndex, -1);
 
         _columnSizes = new int[archetype.ComponentCount];
-        _columns = (byte**)NativeMemory.AllocZeroed((nuint)(sizeof(byte*) * archetype.ComponentCount));
-        _entities = (Entity*)NativeMemory.AlignedAlloc((nuint)(sizeof(Entity) * _capacity), 64);
-        NativeMemory.Clear(_entities, (nuint)(sizeof(Entity) * _capacity));
+        _columns = (byte**)NativeMemory.AllocZeroed(checked((nuint)sizeof(byte*) * (nuint)(uint)archetype.ComponentCount));
+        nuint entityBytes = checked((nuint)sizeof(Entity) * (nuint)(uint)_capacity);
+        _entities = (Entity*)NativeMemory.AlignedAlloc(entityBytes, 64);
+        NativeMemory.Clear(_entities, entityBytes);
 
         for (int i = 0; i < archetype.ComponentCount; i++)
         {
@@ -85,8 +86,8 @@ public sealed unsafe class ArchetypeTable : IDisposable
                 int elemSize = _columnSizes[col];
                 if (elemSize > 0 && _columns[col] != null)
                 {
-                    byte* dst = _columns[col] + (row * elemSize);
-                    byte* src = _columns[col] + (lastIndex * elemSize);
+                    byte* dst = _columns[col] + ((nuint)(uint)row * (nuint)(uint)elemSize);
+                    byte* src = _columns[col] + ((nuint)(uint)lastIndex * (nuint)(uint)elemSize);
                     Buffer.MemoryCopy(src, dst, elemSize, elemSize);
                 }
             }
@@ -102,7 +103,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
         int typeId = ComponentType<T>.Id;
         int col = GetColumnIndex(typeId);
         EnsureColumnAllocated<T>(col);
-        return ref Unsafe.AsRef<T>(_columns[col] + (row * sizeof(T)));
+        return ref Unsafe.AsRef<T>(_columns[col] + ((nuint)(uint)row * (nuint)sizeof(T)));
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -111,7 +112,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
         int typeId = ComponentType<T>.Id;
         int col = GetColumnIndex(typeId);
         EnsureColumnAllocated<T>(col);
-        Unsafe.AsRef<T>(_columns[col] + (row * sizeof(T))) = value;
+        Unsafe.AsRef<T>(_columns[col] + ((nuint)(uint)row * (nuint)sizeof(T))) = value;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -138,8 +139,8 @@ public sealed unsafe class ArchetypeTable : IDisposable
         if (size > 0 && _columns[srcCol] != null)
         {
             dstTable.EnsureColumnAllocatedWithSize(dstCol, size);
-            byte* src = _columns[srcCol] + (srcRow * size);
-            byte* dst = dstTable._columns[dstCol] + (dstRow * size);
+            byte* src = _columns[srcCol] + ((nuint)(uint)srcRow * (nuint)(uint)size);
+            byte* dst = dstTable._columns[dstCol] + ((nuint)(uint)dstRow * (nuint)(uint)size);
             Buffer.MemoryCopy(src, dst, size, size);
         }
     }
@@ -150,7 +151,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
         if (_columnSizes[col] == 0)
         {
             _columnSizes[col] = size;
-            nuint bytes = (nuint)(size * _capacity);
+            nuint bytes = checked((nuint)(uint)size * (nuint)(uint)_capacity);
             _columns[col] = (byte*)NativeMemory.AlignedAlloc(bytes, 64);
             NativeMemory.Clear(_columns[col], bytes);
         }
@@ -172,7 +173,7 @@ public sealed unsafe class ArchetypeTable : IDisposable
         if (_columnSizes[col] == 0)
         {
             _columnSizes[col] = sizeof(T);
-            nuint bytes = (nuint)(sizeof(T) * _capacity);
+            nuint bytes = checked((nuint)sizeof(T) * (nuint)(uint)_capacity);
             _columns[col] = (byte*)NativeMemory.AlignedAlloc(bytes, 64);
             NativeMemory.Clear(_columns[col], bytes);
         }
@@ -204,8 +205,8 @@ public sealed unsafe class ArchetypeTable : IDisposable
         if (required <= _capacity) return;
 
         int newCapacity = Math.Max(_capacity * 2, required);
-        nuint oldEntityBytes = (nuint)(sizeof(Entity) * _capacity);
-        nuint newEntityBytes = (nuint)(sizeof(Entity) * newCapacity);
+        nuint oldEntityBytes = checked((nuint)sizeof(Entity) * (nuint)(uint)_capacity);
+        nuint newEntityBytes = checked((nuint)sizeof(Entity) * (nuint)(uint)newCapacity);
         _entities = (Entity*)NativeMemory.AlignedRealloc(_entities, newEntityBytes, 64);
         NativeMemory.Clear((byte*)_entities + oldEntityBytes, newEntityBytes - oldEntityBytes);
 
@@ -214,8 +215,8 @@ public sealed unsafe class ArchetypeTable : IDisposable
             int elemSize = _columnSizes[col];
             if (elemSize > 0 && _columns[col] != null)
             {
-                nuint oldColBytes = (nuint)(elemSize * _capacity);
-                nuint newColBytes = (nuint)(elemSize * newCapacity);
+                nuint oldColBytes = checked((nuint)(uint)elemSize * (nuint)(uint)_capacity);
+                nuint newColBytes = checked((nuint)(uint)elemSize * (nuint)(uint)newCapacity);
                 _columns[col] = (byte*)NativeMemory.AlignedRealloc(_columns[col], newColBytes, 64);
                 // Clear newly allocated portion
                 NativeMemory.Clear(_columns[col] + oldColBytes, newColBytes - oldColBytes);
@@ -225,10 +226,13 @@ public sealed unsafe class ArchetypeTable : IDisposable
         _capacity = newCapacity;
     }
 
+    ~ArchetypeTable() => Dispose();
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        GC.SuppressFinalize(this);
 
         if (_entities != null)
         {

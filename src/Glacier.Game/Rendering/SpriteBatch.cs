@@ -31,8 +31,8 @@ public sealed unsafe class SpriteBatch : IDisposable
         _renderer = renderer;
         _maxQuads = Math.Max(16, maxQuads);
 
-        nuint vertexBytes = (nuint)(sizeof(Vertex2D) * _maxQuads * 4);
-        nuint indexBytes = (nuint)(sizeof(uint) * _maxQuads * 6);
+        nuint vertexBytes = checked((nuint)sizeof(Vertex2D) * (nuint)(uint)_maxQuads * 4u);
+        nuint indexBytes = checked((nuint)sizeof(uint) * (nuint)(uint)_maxQuads * 6u);
 
         _vertices = (Vertex2D*)NativeMemory.AllocZeroed(vertexBytes);
         _indices = (uint*)NativeMemory.AllocZeroed(indexBytes);
@@ -119,10 +119,13 @@ public sealed unsafe class SpriteBatch : IDisposable
         _inBatch = false;
     }
 
+    ~SpriteBatch() => Dispose();
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        GC.SuppressFinalize(this);
 
         if (_vertices != null)
         {

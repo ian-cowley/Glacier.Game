@@ -14,11 +14,11 @@
 
     <!-- NuGet Package Properties -->
     <PackageId>Glacier.Game</PackageId>
-    <Version>1.1.1</Version>
-    <PackageReleaseNotes>v1.1.1: Migrated from Glacier.Windowing to Glacier.Desktop 1.2.1 with aligned Graphics/Polaris/Tensor/Gpu dependencies.</PackageReleaseNotes>
+    <Version>1.2.0</Version>
+    <PackageReleaseNotes>v1.2.0: Hardened ECS unmanaged memory bounds/finalizers, multi-cell SIMD collision narrowphase, vectorized physics kernels, fast scanline triangle rasterizer, and emitter volume/loop audio support.</PackageReleaseNotes>
     <Authors>Ian Cowley</Authors>
     <Company>Glacier High-Performance Ecosystem</Company>
-    <Description>High-performance data-oriented Entity Component System (ECS) 2D/3D game engine for .NET 10 with AVX-512 physics, Glacier.Windowing native zero-allocation loop, Glacier.Graphics software/GPU rasterization, Direct3D 12 / Vulkan swapchains, and sub-3ms WASAPI audio.</Description>
+    <Description>High-performance data-oriented Entity Component System (ECS) 2D/3D game engine for .NET 10 with AVX-512 physics, Glacier.Desktop native zero-allocation loop, Glacier.Graphics software/GPU rasterization, Direct3D 12 / Vulkan swapchains, and sub-3ms WASAPI audio.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/ian-cowley/Glacier.Game</PackageProjectUrl>
     <RepositoryUrl>https://github.com/ian-cowley/Glacier.Game.git</RepositoryUrl>

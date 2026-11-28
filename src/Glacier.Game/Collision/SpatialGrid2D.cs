@@ -1,23 +1,25 @@
 namespace Glacier.Game.Collision;
 
 using System;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Glacier.Game.Physics;
 
 /// <summary>
 /// High-performance, zero-allocation uniform spatial hash grid for broadphase collision detection.
-/// Backed by unmanaged native memory using a cell-head and entity-next linked list structure.
+/// Supports both point and multi-cell AABB insertion backed by unmanaged native memory.
 /// </summary>
 public sealed unsafe class SpatialGrid2D : IDisposable
 {
     private readonly float _cellSize;
     private readonly float _invCellSize;
     private readonly int _cellCount;
-    private int _maxEntities;
+    private int _entryCapacity;
+    private int _entryCount;
 
     private int* _cellHeads;
-    private int* _entityNext;
+    private int* _entryEntityIds;
+    private int* _entryNext;
     private bool _disposed;
 
     public float CellSize => _cellSize;
@@ -32,44 +34,141 @@ public sealed unsafe class SpatialGrid2D : IDisposable
         _cellSize = cellSize;
         _invCellSize = 1.0f / cellSize;
         _cellCount = cellCount;
-        _maxEntities = maxEntities;
+        _entryCapacity = maxEntities;
 
-        _cellHeads = (int*)NativeMemory.AllocZeroed((nuint)(sizeof(int) * _cellCount));
-        _entityNext = (int*)NativeMemory.AllocZeroed((nuint)(sizeof(int) * _maxEntities));
+        _cellHeads = (int*)NativeMemory.Alloc(checked((nuint)sizeof(int) * (nuint)(uint)_cellCount));
+        nuint entryBytes = checked((nuint)sizeof(int) * (nuint)(uint)_entryCapacity);
+        _entryEntityIds = (int*)NativeMemory.Alloc(entryBytes);
+        _entryNext = (int*)NativeMemory.Alloc(entryBytes);
 
         Clear();
     }
 
+    ~SpatialGrid2D() => Dispose();
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Clear()
     {
-        NativeMemory.Fill(_cellHeads, (nuint)(sizeof(int) * _cellCount), 0xFF); // -1
-        NativeMemory.Fill(_entityNext, (nuint)(sizeof(int) * _maxEntities), 0xFF); // -1
+        _entryCount = 0;
+        NativeMemory.Fill(_cellHeads, checked((nuint)sizeof(int) * (nuint)(uint)_cellCount), 0xFF); // -1
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Insert(int entityId, float x, float y)
     {
         if (entityId < 0) return;
-        if (entityId >= _maxEntities)
-        {
-            GrowEntityCapacity(entityId + 1);
-        }
-
-        int hash = ComputeCellHash(x, y);
-        _entityNext[entityId] = _cellHeads[hash];
-        _cellHeads[hash] = entityId;
+        InsertIntoBucket(entityId, ComputeCellHash(x, y));
     }
 
-    private void GrowEntityCapacity(int required)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void InsertBounds(int entityId, float minX, float maxX, float minY, float maxY)
     {
-        int newMax = Math.Max(_maxEntities * 2, required);
-        int* newNext = (int*)NativeMemory.Alloc((nuint)(sizeof(int) * newMax));
-        NativeMemory.Copy(_entityNext, newNext, (nuint)(sizeof(int) * _maxEntities));
-        NativeMemory.Fill(newNext + _maxEntities, (nuint)(sizeof(int) * (newMax - _maxEntities)), 0xFF);
-        NativeMemory.Free(_entityNext);
-        _entityNext = newNext;
-        _maxEntities = newMax;
+        if (entityId < 0) return;
+        if (maxX < minX) (minX, maxX) = (maxX, minX);
+        if (maxY < minY) (minY, maxY) = (maxY, minY);
+
+        int minCx = (int)MathF.Floor(minX * _invCellSize);
+        int maxCx = (int)MathF.Floor(maxX * _invCellSize);
+        int minCy = (int)MathF.Floor(minY * _invCellSize);
+        int maxCy = (int)MathF.Floor(maxY * _invCellSize);
+
+        long spanX = (long)maxCx - minCx + 1L;
+        long spanY = (long)maxCy - minCy + 1L;
+        if (spanX == 1 && spanY == 1)
+        {
+            InsertIntoBucket(entityId, HashCoords(minCx, minCy));
+            return;
+        }
+
+        if (spanX * spanY <= 64)
+        {
+            Span<int> visitedHashes = stackalloc int[64];
+            int visitedCount = 0;
+
+            for (int cy = minCy; cy <= maxCy; cy++)
+            {
+                for (int cx = minCx; cx <= maxCx; cx++)
+                {
+                    int hash = HashCoords(cx, cy);
+                    bool seen = false;
+                    for (int v = 0; v < visitedCount; v++)
+                    {
+                        if (visitedHashes[v] == hash)
+                        {
+                            seen = true;
+                            break;
+                        }
+                    }
+                    if (seen) continue;
+                    visitedHashes[visitedCount++] = hash;
+                    InsertIntoBucket(entityId, hash);
+                }
+            }
+            return;
+        }
+
+        byte[] rented = ArrayPool<byte>.Shared.Rent(_cellCount);
+        try
+        {
+            Array.Clear(rented, 0, _cellCount);
+            if (spanX * spanY >= _cellCount)
+            {
+                for (int h = 0; h < _cellCount; h++)
+                {
+                    InsertIntoBucket(entityId, h);
+                }
+                return;
+            }
+
+            for (int cy = minCy; cy <= maxCy; cy++)
+            {
+                for (int cx = minCx; cx <= maxCx; cx++)
+                {
+                    int hash = HashCoords(cx, cy);
+                    if (rented[hash] == 0)
+                    {
+                        rented[hash] = 1;
+                        InsertIntoBucket(entityId, hash);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void InsertIntoBucket(int entityId, int hash)
+    {
+        if (_entryCount >= _entryCapacity)
+        {
+            GrowEntryCapacity(_entryCount + 1);
+        }
+
+        int node = _entryCount++;
+        _entryEntityIds[node] = entityId;
+        _entryNext[node] = _cellHeads[hash];
+        _cellHeads[hash] = node;
+    }
+
+    private void GrowEntryCapacity(int required)
+    {
+        int newCap = Math.Max(_entryCapacity * 2, required);
+        nuint oldBytes = checked((nuint)sizeof(int) * (nuint)(uint)_entryCapacity);
+        nuint newBytes = checked((nuint)sizeof(int) * (nuint)(uint)newCap);
+
+        int* newIds = (int*)NativeMemory.Alloc(newBytes);
+        int* newNext = (int*)NativeMemory.Alloc(newBytes);
+        NativeMemory.Copy(_entryEntityIds, newIds, oldBytes);
+        NativeMemory.Copy(_entryNext, newNext, oldBytes);
+        NativeMemory.Free(_entryEntityIds);
+        NativeMemory.Free(_entryNext);
+
+        _entryEntityIds = newIds;
+        _entryNext = newNext;
+        _entryCapacity = newCap;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -100,16 +199,187 @@ public sealed unsafe class SpatialGrid2D : IDisposable
                 if (alreadyVisited) continue;
                 visitedHashes[visitedCount++] = hash;
 
-                int curr = _cellHeads[hash];
-                while (curr != -1 && written < maxResults)
+                int node = _cellHeads[hash];
+                while (node != -1 && written < maxResults)
                 {
-                    results[written++] = curr;
-                    curr = _entityNext[curr];
+                    results[written++] = _entryEntityIds[node];
+                    node = _entryNext[node];
                 }
             }
         }
 
         return written;
+    }
+
+    public int QueryBounds(float minX, float maxX, float minY, float maxY, Span<int> results)
+    {
+        if (maxX < minX) (minX, maxX) = (maxX, minX);
+        if (maxY < minY) (minY, maxY) = (maxY, minY);
+
+        int minCx = (int)MathF.Floor(minX * _invCellSize);
+        int maxCx = (int)MathF.Floor(maxX * _invCellSize);
+        int minCy = (int)MathF.Floor(minY * _invCellSize);
+        int maxCy = (int)MathF.Floor(maxY * _invCellSize);
+
+        int written = 0;
+        int maxResults = results.Length;
+        long spanCells = ((long)maxCx - minCx + 1L) * ((long)maxCy - minCy + 1L);
+
+        if (spanCells <= 64)
+        {
+            Span<int> visitedHashes = stackalloc int[64];
+            int visitedCount = 0;
+            for (int cy = minCy; cy <= maxCy; cy++)
+            {
+                for (int cx = minCx; cx <= maxCx; cx++)
+                {
+                    int hash = HashCoords(cx, cy);
+                    bool seen = false;
+                    for (int v = 0; v < visitedCount; v++)
+                    {
+                        if (visitedHashes[v] == hash)
+                        {
+                            seen = true;
+                            break;
+                        }
+                    }
+                    if (seen) continue;
+                    visitedHashes[visitedCount++] = hash;
+
+                    int node = _cellHeads[hash];
+                    while (node != -1 && written < maxResults)
+                    {
+                        results[written++] = _entryEntityIds[node];
+                        node = _entryNext[node];
+                    }
+                }
+            }
+            return written;
+        }
+
+        byte[] rented = ArrayPool<byte>.Shared.Rent(_cellCount);
+        try
+        {
+            Array.Clear(rented, 0, _cellCount);
+            if (spanCells >= _cellCount)
+            {
+                for (int h = 0; h < _cellCount && written < maxResults; h++)
+                {
+                    int node = _cellHeads[h];
+                    while (node != -1 && written < maxResults)
+                    {
+                        results[written++] = _entryEntityIds[node];
+                        node = _entryNext[node];
+                    }
+                }
+                return written;
+            }
+
+            for (int cy = minCy; cy <= maxCy && written < maxResults; cy++)
+            {
+                for (int cx = minCx; cx <= maxCx && written < maxResults; cx++)
+                {
+                    int hash = HashCoords(cx, cy);
+                    if (rented[hash] != 0) continue;
+                    rented[hash] = 1;
+
+                    int node = _cellHeads[hash];
+                    while (node != -1 && written < maxResults)
+                    {
+                        results[written++] = _entryEntityIds[node];
+                        node = _entryNext[node];
+                    }
+                }
+            }
+            return written;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    public int QueryBounds(float minX, float maxX, float minY, float maxY, ref int[] buffer)
+    {
+        if (maxX < minX) (minX, maxX) = (maxX, minX);
+        if (maxY < minY) (minY, maxY) = (maxY, minY);
+
+        int minCx = (int)MathF.Floor(minX * _invCellSize);
+        int maxCx = (int)MathF.Floor(maxX * _invCellSize);
+        int minCy = (int)MathF.Floor(minY * _invCellSize);
+        int maxCy = (int)MathF.Floor(maxY * _invCellSize);
+
+        int written = 0;
+        long spanCells = ((long)maxCx - minCx + 1L) * ((long)maxCy - minCy + 1L);
+
+        if (spanCells <= 64)
+        {
+            Span<int> visitedHashes = stackalloc int[64];
+            int visitedCount = 0;
+            for (int cy = minCy; cy <= maxCy; cy++)
+            {
+                for (int cx = minCx; cx <= maxCx; cx++)
+                {
+                    int hash = HashCoords(cx, cy);
+                    bool seen = false;
+                    for (int v = 0; v < visitedCount; v++)
+                    {
+                        if (visitedHashes[v] == hash)
+                        {
+                            seen = true;
+                            break;
+                        }
+                    }
+                    if (seen) continue;
+                    visitedHashes[visitedCount++] = hash;
+                    AppendBucket(hash, ref buffer, ref written);
+                }
+            }
+            return written;
+        }
+
+        byte[] rented = ArrayPool<byte>.Shared.Rent(_cellCount);
+        try
+        {
+            Array.Clear(rented, 0, _cellCount);
+            if (spanCells >= _cellCount)
+            {
+                for (int h = 0; h < _cellCount; h++)
+                    AppendBucket(h, ref buffer, ref written);
+                return written;
+            }
+
+            for (int cy = minCy; cy <= maxCy; cy++)
+            {
+                for (int cx = minCx; cx <= maxCx; cx++)
+                {
+                    int hash = HashCoords(cx, cy);
+                    if (rented[hash] != 0) continue;
+                    rented[hash] = 1;
+                    AppendBucket(hash, ref buffer, ref written);
+                }
+            }
+            return written;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void AppendBucket(int hash, ref int[] buffer, ref int written)
+    {
+        int node = _cellHeads[hash];
+        while (node != -1)
+        {
+            if (written >= buffer.Length)
+            {
+                Array.Resize(ref buffer, Math.Max(256, buffer.Length * 2));
+            }
+            buffer[written++] = _entryEntityIds[node];
+            node = _entryNext[node];
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -131,6 +401,7 @@ public sealed unsafe class SpatialGrid2D : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        GC.SuppressFinalize(this);
 
         if (_cellHeads != null)
         {
@@ -138,10 +409,16 @@ public sealed unsafe class SpatialGrid2D : IDisposable
             _cellHeads = null;
         }
 
-        if (_entityNext != null)
+        if (_entryEntityIds != null)
         {
-            NativeMemory.Free(_entityNext);
-            _entityNext = null;
+            NativeMemory.Free(_entryEntityIds);
+            _entryEntityIds = null;
+        }
+
+        if (_entryNext != null)
+        {
+            NativeMemory.Free(_entryNext);
+            _entryNext = null;
         }
     }
 }
